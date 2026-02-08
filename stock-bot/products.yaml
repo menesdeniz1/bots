@@ -1,0 +1,56 @@
+products:
+  - label: "NB 740 Beyaz"
+    enabled: true
+    url: "https://www.newbalance.com.tr/urun/new-balance-740-beyaz-unisex-gunluk-giyim"
+    target_variants: ["38"]
+    price_threshold_tl: 5000
+    sleep_min: 30
+    sleep_max: 60
+    cooldown_minutes: 60
+
+  - label: "Citizen Tsuyosa 37mm (NJ0200-50M) - Konyalı Saat"
+    enabled: true
+    url: "https://www.konyalisaat.com.tr/citizen-tsuyosa-37mm-nj0200-50m-kol-saati"
+    target_variants: ["*"]          # beden/numara yok → serbest
+    price_threshold_tl: 15000
+    sleep_min: 25
+    sleep_max: 55
+    cooldown_minutes: 120
+
+  - label: "CHAMPION ® X ZARA YAMALI TİŞÖRT"
+    enabled: true
+    url: "https://www.zara.com/tr/tr/champion---x-zara-yamali-tisort-p02335790.html"
+    target_variants: ["13-14"]      # Zara’da buton üzerinde nasıl görünüyorsa birebir öyle olmalı
+    price_threshold_tl: 5000
+    sleep_min: 45
+    sleep_max: 90
+    cooldown_minutes: 240
+
+  - label: "New Balance 1906R Metalik Gümüş Unisex Ayakkabı"
+    enabled: true
+    url: "https://www.newbalance.com.tr/urun/new-balance-1906r-4298?srsltid=AfmBOopcFkoAh7G9ImkXFME6iKUo9Q3b-jzZvzslm8uBymXPFgfz54Rr"
+    target_variants: ["38"]
+    price_threshold_tl: 8000
+    sleep_min: 30
+    sleep_max: 60
+    cooldown_minutes: 60
+
+
+  - label: "Nike Sneaker Yürüyüş Günlük Ayakkabı V5 Rnr"
+    enabled: true
+    url: "https://www.trendyol.com/nike/sneaker-yuruyus-gunluk-ayakkabi-v5-rnr-p-1046152473?merchantId=381713&boutiqueId=61&v=47"
+    target_variants: ["47"]
+    price_threshold_tl: 5000
+    sleep_min: 30
+    sleep_max: 60
+    cooldown_minutes: 60
+
+
+  - label: "HALTER PULLU ELBİSE"
+    enabled: true
+    url: "https://www.zara.com/tr/tr/halter-pullu-elbise-p01223452.html"
+    target_variants: ["S"]
+    price_threshold_tl: 5000
+    sleep_min: 30
+    sleep_max: 60
+    cooldown_minutes: 60

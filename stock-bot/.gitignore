@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# IDEs
+.idea/
+.vscode/
+
+# Configs with sensitive info (if any)
+# settings.local.yaml

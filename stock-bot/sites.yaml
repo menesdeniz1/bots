@@ -1,0 +1,32 @@
+sites:
+  zara.com:
+    size_trigger: "button.product-size-selector__button, button:has-text('SEÇİNİZ'), .size-selector-list__item"
+    size_items: ".product-size-selector__size-list-item, .size-selector-list__item, button.zara-button-size, .product-size-info__main-label"
+    add_button: "button[data-test-id='add-button'], .product-detail-actions__action-button, button:has-text('SEPETE EKLE')"
+    price_selector: ".price-current__amount, .product-detail-info__price-amount, .product-detail-info__price, meta[property='product:price:amount']"
+    wait_after_page_load: 5
+
+  konyalisaat.com.tr:
+    size_items: ".variant-item, .size-item"
+    add_button: "#addToCart, .add-to-cart-button, button:has-text('Sepete Ekle')"
+    price_selector: ".product-price, .price-value, #product-price, .money"
+    wait_after_page_load: 3
+
+  newbalance.com.tr:
+    size_items: ".variant-picker__option:not(.disabled), .size-box:not(.disabled), button.variant-button:not([disabled])"
+    add_button: "button.add-to-basket, button.add-to-cart, button:has-text('SEPETE EKLE')"
+    price_selector: ".product-price, .price-value, .total-price"
+    wait_after_page_load: 3
+
+  trendyol.com:
+    size_items: ".variants-area .variant-item:not(.out-of-stock), .sp-itm:not(.passive)"
+    add_button: "button.add-to-basket, .add-to-basket-button, button:has-text('Sepete Ekle')"
+    price_selector: ".prc-dsc, .product-price, .product-price-container"
+    wait_after_page_load: 3
+
+  # Genel / Bilinmeyen siteler için fallback (varsayılan) ayarlar
+  default:
+    size_items: "button, li, [role='button']"
+    add_button: "button:has-text('Sepete Ekle'), button:has-text('Add to Cart')"
+    price_selector: "meta[property='product:price:amount']"
+    wait_after_page_load: 2

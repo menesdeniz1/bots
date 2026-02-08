@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Inno Setup
+output/
+
+# Logs
+*.log
+
+# IDEs
+.idea/
+.vscode/
