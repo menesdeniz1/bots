@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller & Setup
+build/
+dist/
+output/
+*.spec
+
+# Chrome Profiles (Stock Bot specific)
+.chrome-profile-*/
+.chrome-profile-bot/
+.chrome-profile-zara/
+
+# Logs
+*.log
+stock_watch.log
+
+# IDEs
+.idea/
+.vscode/
+
+# Other
+trendyol_sample.html
