@@ -1,8 +1,10 @@
 # ============== GENEL AYARLAR ==============
 settings:
   # --- Telegram (BİRİNCİL kanal) ---
-  # 1) Telegram'da @BotFather'a "/newbot" yaz → token'ı buraya koy
-  # 2) Botuna /start yaz → "python takip_botu_pro.py chatid" → çıkan id'yi buraya koy
+  # KOLAY YOL: bu iki alanı BOŞ bırak → kur.bat'a çift tıkla (veya
+  # "python takip_botu_pro.py kur") → sihirbaz soru-cevapla bağlar,
+  # ayarları kurulum.yaml'a kendisi yazar. Elle doldurmak istersen:
+  # @BotFather'dan token al, botuna /start yaz, "chatid" komutuyla id'ni öğren.
   telegram_bot_token: ""
   telegram_chat_id: ""
 

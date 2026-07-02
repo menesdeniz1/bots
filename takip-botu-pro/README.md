@@ -6,22 +6,25 @@ birden çok kaynaktan (Akakçe birincil) izleyip **en ucuzunu** bildirir.
 Ürünler **Telegram'dan yönetilir** (/ekle /sil /hedef), fiyat hedefe inmese bile
 **son 30 günün dibini** haber verir, haftada bir **grafik raporu** gönderir.
 
-## Kurulum
+## Hızlı başlangıç (minimum girdi)
 
+**Windows:** `kur.bat`'a çift tıkla — paketleri kurar, sihirbaz Telegram'ı
+soru-cevapla bağlar (token yapıştır + botuna `/start` yaz, o kadar), istersen
+botu hemen başlatır. Hiçbir YAML dosyası düzenlemen gerekmez.
+
+**Linux/Mac:**
 ```bash
-pip install -r requirements.txt
-playwright install chromium
+pip install -r requirements.txt && playwright install chromium
+python takip_botu_pro.py kur     # sihirbaz — token yapıştır + botuna /start yaz
 ```
 
-**Telegram botu kur (2 dakika):**
-1. Telegram'da `@BotFather`'a `/newbot` yaz → verdiği token'ı `products.yaml` →
-   `telegram_bot_token` alanına koy.
-2. Oluşan botuna Telegram'dan `/start` yaz.
-3. `python takip_botu_pro.py chatid` → çıkan id'yi `telegram_chat_id` alanına koy.
-4. `python takip_botu_pro.py test` → telefona test mesajı gelmeli.
+Ondan sonrası telefondan: **bota ürün linkini gönder** → fiyatı okur, adı
+sayfadan alır, hedefi butonla seçtirir (%3 / %5 / %10 altı ya da kendin yaz).
+Bitti — izleme başlar.
 
-WhatsApp Web tamamen kalktı: QR yok, tarayıcı oturumu derdi yok, bot **tam
-headless** çalışır. CallMeBot hâlâ yedek kanal olarak durur (isteğe bağlı).
+Sihirbaz ayarları `kurulum.yaml`'a yazar (git'e girmez); `products.yaml`'ı elle
+düzenlemek tamamen isteğe bağlıdır. WhatsApp Web yok: QR yok, oturum derdi yok,
+bot **tam headless** çalışır. CallMeBot yedek kanal olarak ayarlanabilir.
 
 ## Çalıştırma
 
@@ -41,9 +44,10 @@ doğru `price_selector` yaz (sayfada sağ tık → İncele → fiyat elementinin
 
 | Komut | Ne yapar |
 |---|---|
+| **ürün linki gönder** | En kolay yol: fiyatı okur, hedefi butonla seçtirir, izlemeye alır |
 | `/durum` | Son fiyatlar + hedefler + 7 günlük trend (↓%4,2/7g) + kaynak site |
 | `/liste` | İzlenen ürünler, numaralı (sil/hedef için numara buradan) |
-| `/ekle <link> <hedefTL> [etiket]` | Yeni ürün ekle — izleme ANINDA başlar |
+| `/ekle <link> [hedefTL] [etiket]` | Hedefsiz verirsen butonlu akış açılır |
 | `/sil <no>` | Ürünü izlemeden çıkar |
 | `/hedef <no> <fiyatTL>` | Hedef fiyatı değiştir |
 | `/grafik` | Grafik: PNG (hızlı bakış) + HTML (etkileşimli) gönderir |

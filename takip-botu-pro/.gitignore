@@ -6,5 +6,6 @@ fiyat_gecmisi.csv
 fiyat_grafigi.html
 fiyat_grafigi.png
 telegram_urunler.yaml
+kurulum.yaml
 *.log
 __pycache__/

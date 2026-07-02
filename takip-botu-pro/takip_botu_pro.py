@@ -61,6 +61,7 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Pa
 BASE_DIR = Path(__file__).resolve().parent
 PRODUCTS_YAML = BASE_DIR / "products.yaml"
 TELEGRAM_URUNLER = BASE_DIR / "telegram_urunler.yaml"   # /ekle /sil /hedef buraya yazar
+KURULUM_YAML = BASE_DIR / "kurulum.yaml"                # kurulum sihirbazı buraya yazar
 SITES_YAML = BASE_DIR / "sites.yaml"
 STATE_FILE = BASE_DIR / "state.json"
 HISTORY_CSV = BASE_DIR / "fiyat_gecmisi.csv"
@@ -224,6 +225,14 @@ def tg_hedef_degistir(key: str, hedef: float) -> None:
     else:
         d["hedefler"][key] = hedef
     save_yaml_atomic(TELEGRAM_URUNLER, d)
+
+
+def baslik_temizle(t: str) -> str:
+    """Sayfa başlığını etikete çevirir: '|' / ' - ' sonrası site adı kırpılır."""
+    for ayrac in (" | ", "|", " – ", " — ", " - "):
+        if ayrac in t:
+            t = t.split(ayrac)[0]
+    return " ".join(t.split()).strip()[:60]
 
 
 def etiket_uret(url: str) -> str:
@@ -738,6 +747,13 @@ class Notifier:
     async def send_photo(self, path: Path, caption: str = "") -> bool:
         return await self._send_file("sendPhoto", "photo", path, "image/png", caption)
 
+    async def send_buttons(self, text: str, buttons: list[list[dict]]) -> bool:
+        """Tıklanabilir buton satırlarıyla mesaj (hedef fiyat seçimi için)."""
+        r = await self.tg("sendMessage", chat_id=self.chat_id, text=text,
+                          disable_web_page_preview=True,
+                          reply_markup={"inline_keyboard": buttons})
+        return bool(r)
+
 
 # ===================== KONTROL + KARAR =====================
 
@@ -747,7 +763,7 @@ async def check_once(context: BrowserContext, sites: Sites, throttle: HostThrott
     host = urlparse(url).netloc
     strat = sites.strategy(host)
     sonuc = {"url": url, "host": host.replace("www.", ""),
-             "price": None, "source": "yok", "seller": None,
+             "price": None, "source": "yok", "seller": None, "title": "",
              "in_stock": None, "variant_ok": True, "variant": "AUTO", "blocked": False}
 
     async with throttle.slot(host):
@@ -761,6 +777,10 @@ async def check_once(context: BrowserContext, sites: Sites, throttle: HostThrott
                                 "mevcut haliyle okunuyor...")
             await page.mouse.move(random.randint(80, 500), random.randint(80, 500))
             await asyncio.sleep(strat.get("wait_after_page_load", 3))
+            try:
+                sonuc["title"] = (await page.title() or "").strip()
+            except Exception:
+                pass
 
             if await detect_block(page):
                 sonuc["blocked"] = True
@@ -1067,14 +1087,16 @@ def liste_metni(products: list) -> str:
     return "\n".join(satirlar)
 
 
-YARDIM = ("Komutlar:\n"
+YARDIM = ("🛒 Ürün eklemek için ürün linkini DİREKT GÖNDER yeter —\n"
+          "fiyatı okur, hedefi butonla seçtiririm.\n\n"
+          "Komutlar:\n"
           "/durum — son fiyatlar + 7g trend\n"
           "/liste — izlenen ürünler (numaralı)\n"
-          "/ekle <link> <hedefTL> [etiket] — ürün ekle\n"
           "/sil <no> — ürünü izlemeden çıkar\n"
           "/hedef <no> <fiyatTL> — hedef fiyatı değiştir\n"
           "/grafik — fiyat grafiği (PNG + HTML)\n"
-          "/csv — ham fiyat geçmişi")
+          "/csv — ham fiyat geçmişi\n"
+          "(/ekle <link> [hedefTL] [etiket] de çalışır)")
 
 
 def _urun_no(parca: list[str], products: list) -> tuple[dict | None, str]:
@@ -1085,6 +1107,65 @@ def _urun_no(parca: list[str], products: list) -> tuple[dict | None, str]:
     if not 1 <= n <= len(products):
         return None, f"Geçersiz numara: {n}. /liste ile kontrol et (1-{len(products)})."
     return products[n - 1], ""
+
+
+def _tekil_etiket(label: str, products: list) -> str:
+    """Aynı etiket varsa '(2)' ekleyerek benzersizleştirir."""
+    mevcut = {product_key(p) for p in products}
+    if label not in mevcut:
+        return label
+    i = 2
+    while f"{label} ({i})" in mevcut:
+        i += 1
+    return f"{label} ({i})"
+
+
+async def urun_on_izleme(manager: WatcherManager, notifier: Notifier,
+                         shared: dict, url: str) -> None:
+    """Link geldi → sayfayı okur, adı/fiyatı çıkarır, hedefi butonla sordurur.
+    Kullanıcıdan istenen tek şey linkti; gerisi bu akışta hallolur."""
+    await notifier.send("🔎 Ürüne bakıyorum, 10-20 saniye...")
+    try:
+        s = await check_once(manager.context, manager.sites, manager.throttle,
+                             {"label": "yeni ürün", "mode": "price"}, url)
+    except Exception as e:
+        await notifier.send(f"Sayfayı açamadım ({type(e).__name__}). "
+                            "Linki kontrol edip tekrar gönder.")
+        return
+    label = _tekil_etiket(baslik_temizle(s.get("title") or "") or etiket_uret(url),
+                          shared["products"])
+    shared["bekleyen_urun"] = {"url": url, "fiyat": s["price"], "label": label}
+    f = s["price"]
+    if f and not s["blocked"]:
+        rows = [[{"text": f"%3 altı → {tl(round(f * 0.97))}", "callback_data": "hedef|3"}],
+                [{"text": f"%5 altı → {tl(round(f * 0.95))}", "callback_data": "hedef|5"}],
+                [{"text": f"%10 altı → {tl(round(f * 0.90))}", "callback_data": "hedef|10"}],
+                [{"text": "✍️ Kendim yazacağım", "callback_data": "elle"},
+                 {"text": "❌ Vazgeç", "callback_data": "iptal"}]]
+        ok = await notifier.send_buttons(
+            f"🛒 {label}\n💰 Şu an: {tl(f)} ({s['host']})\n\nHedef fiyat ne olsun?", rows)
+        if not ok:
+            shared["bekleyen_urun"]["elle"] = True
+            await notifier.send(f"🛒 {label} — şu an {tl(f)}.\n"
+                                "Hedef fiyatı yaz (örn: 13500), vazgeçmek için 'iptal':")
+    else:
+        shared["bekleyen_urun"]["elle"] = True
+        ek = " (site bot koruması gösterdi)" if s["blocked"] else ""
+        await notifier.send(f"🛒 {label}\nFiyatı şu an okuyamadım{ek} — yine de "
+                            "izlemeye alabilirim.\nHedef fiyatı yaz (örn: 13500), "
+                            "vazgeçmek için 'iptal':")
+
+
+async def urun_ekle_bitir(manager: WatcherManager, notifier: Notifier,
+                          shared: dict, hedef: float) -> None:
+    b = shared.pop("bekleyen_urun", None)
+    if not b:
+        return
+    tg_urun_ekle(b["label"], b["url"], float(hedef))
+    shared["products"] = load_products()
+    manager.sync(shared["products"])
+    await notifier.send(f"✅ Eklendi: {b['label']}\n🎯 Hedef: {tl(float(hedef))} — "
+                        "izleme başladı. (/liste ile gör)")
 
 
 async def telegram_listener(notifier: Notifier, shared: dict, state: State,
@@ -1103,11 +1184,59 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
                 continue
             for u in updates:
                 offset = u["update_id"] + 1
+
+                # --- Buton tıklamaları (hedef fiyat seçimi) ---
+                cb = u.get("callback_query")
+                if cb:
+                    cb_chat = str(((cb.get("message") or {}).get("chat") or {})
+                                  .get("id", ""))
+                    await notifier.tg("answerCallbackQuery",
+                                      callback_query_id=cb.get("id"))
+                    if not notifier.chat_id or cb_chat != notifier.chat_id:
+                        continue
+                    data = cb.get("data", "")
+                    bekleyen = shared.get("bekleyen_urun")
+                    if data == "iptal":
+                        shared.pop("bekleyen_urun", None)
+                        await notifier.send("Vazgeçildi.")
+                    elif data == "elle" and bekleyen:
+                        bekleyen["elle"] = True
+                        await notifier.send("Hedef fiyatı yaz (örn: 13500), "
+                                            "vazgeçmek için 'iptal':")
+                    elif data.startswith("hedef|") and bekleyen and bekleyen.get("fiyat"):
+                        yuzde = float(data.split("|", 1)[1])
+                        hedef = round(bekleyen["fiyat"] * (1 - yuzde / 100))
+                        await urun_ekle_bitir(manager, notifier, shared, hedef)
+                    continue
+
                 msg = u.get("message") or {}
                 chat = str((msg.get("chat") or {}).get("id", ""))
                 text = (msg.get("text") or "").strip()
-                if not text.startswith("/"):
+                if not text:
                     continue
+
+                if not text.startswith("/"):
+                    if not notifier.chat_id or chat != notifier.chat_id:
+                        continue
+                    # Düz mesaj: link geldiyse ekleme akışını başlat;
+                    # hedef fiyat bekleniyorsa sayıyı işle
+                    link = re.search(r"https?://\S+", text)
+                    bekleyen = shared.get("bekleyen_urun")
+                    if link:
+                        await urun_on_izleme(manager, notifier, shared, link.group(0))
+                    elif bekleyen and bekleyen.get("elle"):
+                        if text.lower() in ("iptal", "vazgeç", "vazgec"):
+                            shared.pop("bekleyen_urun", None)
+                            await notifier.send("Vazgeçildi.")
+                            continue
+                        hedef = parse_try_amount(text)
+                        if hedef:
+                            await urun_ekle_bitir(manager, notifier, shared, hedef)
+                        else:
+                            await notifier.send("Anlayamadım — sadece rakam yaz "
+                                                "(örn: 13500) ya da 'iptal'.")
+                    continue
+
                 parca = text.split()
                 cmd = parca[0].lower().split("@")[0]
 
@@ -1134,22 +1263,23 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
 
                 elif cmd == "/ekle":
                     url = parca[1] if len(parca) > 1 else ""
+                    if not url.startswith("http"):
+                        await notifier.send("Bana ürün linkini göndermen yeterli — "
+                                            "komutsuz da olur.\nYa da: /ekle <link> "
+                                            "[hedefTL] [etiket]")
+                        continue
                     hedef = parse_try_amount(parca[2]) if len(parca) > 2 else None
-                    if not url.startswith("http") or not hedef:
-                        await notifier.send("Kullanım: /ekle <link> <hedefTL> [etiket]\n"
-                                            "Örn: /ekle https://www.akakce.com/... 13500 "
-                                            "Ryzen 7800X3D")
+                    if not hedef:
+                        # hedef verilmedi → fiyatı okuyup butonla sordur
+                        await urun_on_izleme(manager, notifier, shared, url)
                         continue
-                    label = " ".join(parca[3:]).strip() or etiket_uret(url)
-                    if any(product_key(p) == label for p in products):
-                        await notifier.send(f"'{label}' zaten listede. "
-                                            "Farklı bir etiket ver.")
-                        continue
+                    label = _tekil_etiket(" ".join(parca[3:]).strip() or etiket_uret(url),
+                                          products)
                     tg_urun_ekle(label, url, hedef)
                     shared["products"] = load_products()
                     manager.sync(shared["products"])
                     await notifier.send(f"✅ Eklendi: {label}\n"
-                                        f"hedef {tl(hedef)} — ilk kontrol başlıyor.")
+                                        f"🎯 Hedef: {tl(hedef)} — izleme başladı.")
 
                 elif cmd == "/sil":
                     p, hata = _urun_no(parca, products)
@@ -1224,7 +1354,11 @@ async def heartbeat(notifier: Notifier, settings: dict, shared: dict,
 
 def load_config() -> tuple[dict, list, Sites]:
     cfg = load_yaml(PRODUCTS_YAML)
-    settings = cfg.get("settings", {})
+    settings = dict(cfg.get("settings", {}))
+    # Kurulum sihirbazının yazdığı ayarlar (token, chat_id) products.yaml'ı ezmeden
+    # ayrı dosyadan gelir — kullanıcı hiç YAML düzenlemek zorunda kalmaz
+    if KURULUM_YAML.exists():
+        settings.update(load_yaml(KURULUM_YAML))
     products = load_products()
     sites = Sites(load_yaml(SITES_YAML))
     return settings, products, sites
@@ -1356,6 +1490,87 @@ async def run_chatid() -> None:
         await rq.dispose()
 
 
+async def run_kur() -> bool:
+    """Kurulum sihirbazı: YAML düzenlemeden soru-cevapla Telegram'ı bağlar.
+    True dönerse kullanıcı botun hemen başlatılmasını istedi demektir."""
+    print()
+    print("=" * 58)
+    print("  TAKİP BOTU KURULUM SİHİRBAZI")
+    print("=" * 58)
+    print()
+    print("ADIM 1/2 — Telegram botu oluştur:")
+    print("  • Telegram'da @BotFather'ı aç")
+    print("  • /newbot yaz, bir isim ver")
+    print("  • Sana verdiği token'ı (123456:ABC-DEF... gibi) buraya yapıştır")
+    print()
+    async with async_playwright() as p:
+        rq = await p.request.new_context()
+        try:
+            token = ""
+            while True:
+                try:
+                    token = input("Bot token: ").strip()
+                except EOFError:
+                    return False
+                if not token:
+                    continue
+                n = Notifier(rq, {"telegram_bot_token": token})
+                me = await n.tg("getMe")
+                if me:
+                    print(f"  ✔ Bot bulundu: @{me.get('username')}")
+                    break
+                print("  ✖ Token geçersiz görünüyor, tekrar dene.")
+
+            print()
+            print("ADIM 2/2 — Botunla eşleş:")
+            print(f"  • Telegram'da @{me.get('username')} sohbetini aç ve /start yaz")
+            print("  • Mesajını bekliyorum (2 dakika)...")
+            chat_id = None
+            ad = ""
+            offset = 0
+            son = time.time() + 120
+            while time.time() < son and not chat_id:
+                updates = await n.tg("getUpdates", timeout_ms=25000,
+                                     offset=offset, timeout=15) or []
+                for u in updates:
+                    offset = u["update_id"] + 1
+                    chat = ((u.get("message") or {}).get("chat") or {})
+                    if chat.get("id"):
+                        chat_id = str(chat["id"])
+                        ad = chat.get("first_name") or chat.get("title") or ""
+            if not chat_id:
+                print("  ✖ Mesaj gelmedi. Tekrar denemek için: "
+                      "python takip_botu_pro.py kur")
+                return False
+            print(f"  ✔ Eşleşti: {ad} (chat_id: {chat_id})")
+
+            save_yaml_atomic(KURULUM_YAML, {
+                "telegram_bot_token": token,
+                "telegram_chat_id": chat_id,
+            })
+            n.chat_id = chat_id
+            await n.send("🎉 Kurulum tamam! Artık ürün eklemek için bana ürün "
+                         "linkini göndermen yeterli. /yardim ile komutları gör.")
+            print()
+            print("  ✔ Ayarlar kurulum.yaml'a kaydedildi, test mesajı gönderildi.")
+            print()
+            try:
+                cevap = input("Bot şimdi başlatılsın mı? [E/h]: ").strip().lower()
+            except EOFError:
+                return False
+            return cevap in ("", "e", "evet", "y", "yes")
+        finally:
+            await rq.dispose()
+
+
+def _telegram_ayarli() -> bool:
+    try:
+        settings, _, _ = load_config()
+        return bool(settings.get("telegram_bot_token"))
+    except Exception:
+        return True  # config okunamıyorsa main() kendi hatasını versin
+
+
 if __name__ == "__main__":
     komut = sys.argv[1].lower() if len(sys.argv) > 1 else ""
     try:
@@ -1365,10 +1580,20 @@ if __name__ == "__main__":
             asyncio.run(run_once())
         elif komut == "chatid":
             asyncio.run(run_chatid())
+        elif komut == "kur":
+            if asyncio.run(run_kur()):
+                asyncio.run(main())
         elif komut == "grafik":
             import grafik
             print(f"Grafik üretildi: {grafik.generate()}")
         else:
-            asyncio.run(main())
+            # İlk çalıştırma kolaylığı: Telegram hiç ayarlanmamışsa ve terminal
+            # etkileşimliyse sihirbazı otomatik başlat
+            if not _telegram_ayarli() and sys.stdin.isatty():
+                print("Telegram ayarlı görünmüyor — kurulum sihirbazı başlıyor.")
+                if asyncio.run(run_kur()):
+                    asyncio.run(main())
+            else:
+                asyncio.run(main())
     except KeyboardInterrupt:
         pass
