@@ -4,5 +4,7 @@ state.json
 state.json.tmp
 fiyat_gecmisi.csv
 fiyat_grafigi.html
+fiyat_grafigi.png
+telegram_urunler.yaml
 *.log
 __pycache__/

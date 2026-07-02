@@ -1,9 +1,10 @@
-# Takip Botu PRO v3 — TR E-Ticaret Fiyat & Stok Takibi (Telegram + Akakçe)
+# Takip Botu PRO v4 — TR E-Ticaret Fiyat & Stok Takibi (Telegram + Akakçe)
 
 Amazon.tr, Hepsiburada, N11, Trendyol, Akakçe, Tebilon vb. sitelerden PC parçası
 fiyat/stok takibi yapar, hedef tutunca **Telegram'a** bildirim atar. Aynı ürünü
 birden çok kaynaktan (Akakçe birincil) izleyip **en ucuzunu** bildirir.
-Fiyat geçmişinden **HTML grafik** üretir.
+Ürünler **Telegram'dan yönetilir** (/ekle /sil /hedef), fiyat hedefe inmese bile
+**son 30 günün dibini** haber verir, haftada bir **grafik raporu** gönderir.
 
 ## Kurulum
 
@@ -40,12 +41,46 @@ doğru `price_selector` yaz (sayfada sağ tık → İncele → fiyat elementinin
 
 | Komut | Ne yapar |
 |---|---|
-| `/durum` | Tüm ürünlerin son bilinen fiyatı + hedef + kaynak site |
-| `/grafik` | Fiyat geçmişi grafiğini HTML dosyası olarak gönderir |
+| `/durum` | Son fiyatlar + hedefler + 7 günlük trend (↓%4,2/7g) + kaynak site |
+| `/liste` | İzlenen ürünler, numaralı (sil/hedef için numara buradan) |
+| `/ekle <link> <hedefTL> [etiket]` | Yeni ürün ekle — izleme ANINDA başlar |
+| `/sil <no>` | Ürünü izlemeden çıkar |
+| `/hedef <no> <fiyatTL>` | Hedef fiyatı değiştir |
+| `/grafik` | Grafik: PNG (hızlı bakış) + HTML (etkileşimli) gönderir |
 | `/csv` | Ham fiyat geçmişini gönderir |
 | `/yardim` | Komut listesi |
 
 Sadece `telegram_chat_id`'deki sohbetten gelen komutlar işlenir; yabancılar yok sayılır.
+
+Telegram'dan yapılan ekleme/silme/hedef değişiklikleri `telegram_urunler.yaml`'a
+yazılır — senin elle düzenlediğin `products.yaml` hiç bozulmaz; açılışta ikisi
+birleştirilir. Bot yeniden başlatma gerektirmez, izleyiciler canlı güncellenir.
+
+## 30 günün en düşüğü sinyali
+
+Sabit hedef bazen fırsat kaçırtır: fiyat hedefe inmese bile **son 30 günün
+dibini** gördüğünde bot 📉 bilgi mesajı atar. Günlük minimumlar `state.json`'da
+tutulur (CSV taranmaz, hafiftir). Ayarlar: `low30_alert`, `low30_min_days`
+(ilk günlerde spam olmasın diye en az 7 günlük veri ister), `low30_cooldown_minutes`.
+Hedef alarmı zaten atılacaksa ayrıca dip mesajı atılmaz.
+
+## 7/24 çalıştırma + watchdog
+
+**Windows:** `calistir.bat` botu izler, çökerse 15 sn sonra yeniden başlatır.
+Bilgisayar açılınca otomatik başlasın: `Win+R` → `shell:startup` → açılan
+klasöre `calistir.bat`'ın kısayolunu koy.
+
+**Linux / Raspberry Pi:** `takip-botu.service` şablonunu düzenleyip
+(`User`, `WorkingDirectory`, `ExecStart` yolları) systemd'ye kur:
+```bash
+sudo cp takip-botu.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now takip-botu
+journalctl -u takip-botu -f     # canlı log
+```
+
+Bot her (yeniden) başlayışta Telegram'a 🔄 mesajı atar; 30 dk içinde arka arkaya
+başlıyorsa (çökme döngüsü) mesaj spam'i yapmaz, `takip.log`'a bakman gerektiğini
+loglar.
 
 ## Akakçe birincil kurgusu (çoklu kaynak)
 
@@ -67,9 +102,12 @@ mağaza linki de yedek kaynak olur. Akakçe'de en ucuz satıcının adı bildiri
 | Dosya | Ne işe yarar |
 |---|---|
 | `products.yaml` | Ürün listesi + genel ayarlar (Telegram, eşzamanlılık, heartbeat...) |
+| `telegram_urunler.yaml` | /ekle /sil /hedef değişiklikleri (bot yazar, otomatik oluşur) |
 | `sites.yaml` | Siteye özel CSS seçicileri — site okumuyorsa burayı düzelt |
 | `grafik.py` | `fiyat_gecmisi.csv` → `fiyat_grafigi.html` (koyu/açık tema, ürün başına grafik) |
-| `state.json` | Bildirim durumu (otomatik oluşur) — mükerrer bildirim engeli buradan |
+| `calistir.bat` | Windows watchdog — çökerse yeniden başlatır |
+| `takip-botu.service` | Linux/RaspberryPi systemd servisi şablonu |
+| `state.json` | Bildirim durumu + günlük minimumlar (otomatik oluşur) |
 | `fiyat_gecmisi.csv` | Her okuma: `zaman;urun;site;fiyat;stok;kaynak` |
 | `takip.log` | Çalışma logu |
 | `.chrome-profile-bot/` | Kalıcı tarayıcı profili (çerezler) — **git'e girmez!** |

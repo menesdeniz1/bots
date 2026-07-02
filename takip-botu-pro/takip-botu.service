@@ -1,0 +1,27 @@
+# =====================================================================
+# Takip Botu systemd servisi (Linux / Raspberry Pi) — 7/24 + otomatik
+# yeniden baslatma.
+#
+# Kurulum:
+#   1) User ve WorkingDirectory/ExecStart yollarini kendine gore duzenle
+#   2) sudo cp takip-botu.service /etc/systemd/system/
+#   3) sudo systemctl daemon-reload
+#   4) sudo systemctl enable --now takip-botu
+#
+# Takip:  journalctl -u takip-botu -f      Durdurma:  sudo systemctl stop takip-botu
+# =====================================================================
+[Unit]
+Description=TR e-ticaret fiyat/stok takip botu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/takip-botu-pro
+ExecStart=/usr/bin/python3 takip_botu_pro.py
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -17,6 +17,10 @@ settings:
   sanity_guard: true             # Şüpheli (anormal düşük) fiyatı ikinci okumayla doğrula
   renotify_drop_pct: 3           # Cooldown içinde fiyat bu % kadar daha düşerse yine bildir
   error_alert_streak: 5          # Ürün üst üste bu kadar okunamazsa uyarı mesajı at
+  low30_alert: true              # Hedefe inmese bile "son 30 günün en düşüğü" bilgisi gönder
+  low30_min_days: 7              # Bu sinyal için en az kaç günlük veri birikmiş olmalı
+  low30_cooldown_minutes: 1440   # İki 30-gün-dibi mesajı arası minimum süre (dk)
+  weekly_chart_day: 0            # Haftalık grafik PNG günü: 0=Pzt ... 6=Paz (kapatmak: null)
 
 # ============== ÜRÜNLER ==============
 # mode: price (PC parçası) | stock (beden takibi) | price+stock

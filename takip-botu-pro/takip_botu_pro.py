@@ -1,40 +1,42 @@
 # -*- coding: utf-8 -*-
 """
-STOK + FİYAT TAKİP BOTU — PRO v3 (Telegram + Akakçe birincil)
-==============================================================
+STOK + FİYAT TAKİP BOTU — PRO v4 (Telegram'dan yönetim + 30-gün dibi + haftalık rapor)
+=======================================================================================
 Motor    : Playwright (Chromium, kalıcı profil, stealth) → JS'li Türk sitelerinde çalışır
-Bildirim : 1) Telegram Bot API (HTTPS, tarayıcı gerekmez, çok stabil)
-           2) başarısızsa CallMeBot API (WhatsApp'a düşen yedek kanal)
-Durum    : state.json → bot yeniden başlasa da mükerrer bildirim atmaz (cooldown + tekrar-düşüş)
-Geçmiş   : her okuma fiyat_gecmisi.csv'ye eklenir → grafik.py ile HTML grafik
+Bildirim : 1) Telegram Bot API   2) başarısızsa CallMeBot API (WhatsApp'a düşen yedek)
+Durum    : state.json → mükerrer bildirim yok (cooldown + tekrar-düşüş)
+Geçmiş   : fiyat_gecmisi.csv → grafik.py ile HTML grafik + PNG rapor
 
-v3 ile gelenler (v2 üzerine):
-  • WhatsApp Web tamamen kalktı → QR yok, tarayıcı bildirimi yok, TAM HEADLESS çalışır
-  • Çoklu kaynak: ürüne 'urls' listesi ver → bot HEPSİNİ kontrol eder, EN UCUZUNU bildirir.
-    İlk sıraya Akakçe linkini koy → tüm satıcıların en ucuzu tek sayfadan (Akakçe birincil kurgusu)
-  • Telegram komutları: /durum (son fiyatlar), /grafik (HTML grafik gönderir), /csv (ham veri)
-  • Akakçe'de en ucuz satıcının adı da bildirime eklenir (sites.yaml → seller_selector)
-  • Fiyat hiç okunamayan turlar da hata serisine sayılır (seçici bozulmasını daha erken yakalar)
+v4 ile gelenler (v3 üzerine):
+  • Telegram'dan ürün yönetimi: /liste /ekle /sil /hedef — bilgisayara dokunmadan.
+    Değişiklikler telegram_urunler.yaml'a yazılır (products.yaml'ına dokunulmaz),
+    izleyiciler CANLI güncellenir, yeniden başlatma gerekmez.
+  • "30 günün en düşüğü" sinyali: fiyat hedefe inmese bile son 30 günün dibini
+    görünce bilgi mesajı (state'te günlük minimumlar tutulur, CSV taranmaz)
+  • /durum ve heartbeat'te 7 günlük değişim yüzdesi (↓%4,2/7g gibi)
+  • Haftalık grafik: belirlenen günde heartbeat ile birlikte grafik PNG olarak gelir;
+    /grafik komutu da artık PNG (hızlı bakış) + HTML (etkileşimli) gönderir
+  • Watchdog: calistir.bat (Windows) ve takip-botu.service (Linux/RaspberryPi) —
+    bot çökerse otomatik yeniden başlar; açılışta "bot başlatıldı" mesajı
+    (çökme döngüsünde mesaj spam'i engellenir)
 
-v2'den gelenler:
-  • Fiyat okuma zinciri: JSON-LD (@graph/offers/lowPrice/TRY) → siteye özel seçici →
-    genel seçiciler → meta tag → gövde regex (düşük güven)
-  • Şüpheli fiyat koruması: anormal düşük fiyat ikinci okumayla doğrulanır → yanlış alarm yok
-  • Site bazlı kuyruk + captcha'da üstel geri çekilme (5 dk → 60 dk)
-  • Günlük heartbeat: "bot yaşıyor" + fiyat özeti + bayat okuma uyarısı
-  • Her kontrolde sekme aç-kapat → RAM sızıntısı yok
+v3'ten gelenler: Telegram birincil kanal (QR yok, tam headless), çoklu kaynak
+  (Akakçe birincil, en ucuz kaynak bildirilir), Akakçe satıcı adı.
+v2'den gelenler: JSON-LD öncelikli fiyat zinciri, şüpheli fiyat için ikinci-okuma
+  doğrulaması, site bazlı kuyruk + captcha'da üstel geri çekilme, heartbeat,
+  hata serisi uyarısı, sekme aç-kapat (RAM disiplini).
 
 Kurulum:
   pip install -r requirements.txt && playwright install chromium
   1) Telegram'da @BotFather'a /newbot yaz → token'ı products.yaml'a koy
-  2) Botuna Telegram'dan /start yaz → python takip_botu_pro.py chatid → çıkan id'yi yaml'a koy
+  2) Botuna /start yaz → python takip_botu_pro.py chatid → çıkan id'yi yaml'a koy
   3) python takip_botu_pro.py test → test mesajı gelmeli
 
 Çalıştırma:
-  python takip_botu_pro.py           → normal çalışma
-  python takip_botu_pro.py once      → tüm ürünleri BİR KEZ kontrol et, tabloyu bas, bildirim atma
+  python takip_botu_pro.py           → normal çalışma (7/24 için: calistir.bat / systemd)
+  python takip_botu_pro.py once      → tüm ürünleri BİR KEZ kontrol et, bildirim atma
   python takip_botu_pro.py test      → Telegram'a test mesajı gönder
-  python takip_botu_pro.py chatid    → chat_id'ni öğren (bota /start yazdıktan sonra)
+  python takip_botu_pro.py chatid    → chat_id'ni öğren
   python takip_botu_pro.py grafik    → fiyat_grafigi.html üret
 """
 
@@ -48,7 +50,7 @@ import re
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus, urlparse
 
@@ -58,9 +60,12 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Pa
 # ===================== YOLLAR =====================
 BASE_DIR = Path(__file__).resolve().parent
 PRODUCTS_YAML = BASE_DIR / "products.yaml"
+TELEGRAM_URUNLER = BASE_DIR / "telegram_urunler.yaml"   # /ekle /sil /hedef buraya yazar
 SITES_YAML = BASE_DIR / "sites.yaml"
 STATE_FILE = BASE_DIR / "state.json"
 HISTORY_CSV = BASE_DIR / "fiyat_gecmisi.csv"
+GRAFIK_HTML = BASE_DIR / "fiyat_grafigi.html"
+GRAFIK_PNG = BASE_DIR / "fiyat_grafigi.png"
 USER_DATA_DIR = str(BASE_DIR / ".chrome-profile-bot")
 LOG_FILE = BASE_DIR / "takip.log"
 # ==================================================
@@ -127,11 +132,24 @@ def tl(v: float | None) -> str:
     return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " TL"
 
 
-# ===================== YAML / DURUM / GEÇMİŞ =====================
+def pct(v: float) -> str:
+    """7 günlük değişim gösterimi: -4.23 → '↓%4,2', 2.1 → '↑%2,1'."""
+    ok = "↓" if v < 0 else "↑"
+    return f"{ok}%{abs(v):.1f}".replace(".", ",")
+
+
+# ===================== YAML / ÜRÜN LİSTESİ =====================
 
 def load_yaml(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
+
+
+def save_yaml_atomic(path: Path, data: dict) -> None:
+    tmp = path.with_suffix(".yaml.tmp")
+    tmp.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+                   encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def product_key(prod: dict) -> str:
@@ -146,8 +164,84 @@ def product_urls(prod: dict) -> list[str]:
     return urls or [prod["url"]]
 
 
+def load_products() -> list[dict]:
+    """products.yaml + telegram_urunler.yaml birleşimi. Telegram'dan yapılan
+    ekleme/silme/hedef değişikliği ayrı dosyada tutulur ki kullanıcının elle
+    düzenlediği products.yaml (yorumlarıyla birlikte) hiç bozulmasın."""
+    cfg = load_yaml(PRODUCTS_YAML)
+    products = [dict(p) for p in cfg.get("products", []) if p.get("enabled", True)]
+    tg = load_yaml(TELEGRAM_URUNLER) if TELEGRAM_URUNLER.exists() else {}
+    for p in (tg.get("eklenen") or []):
+        products.append(dict(p))
+    kaldirilan = set(tg.get("kaldirilan") or [])
+    products = [p for p in products if product_key(p) not in kaldirilan]
+    hedefler = tg.get("hedefler") or {}
+    for p in products:
+        k = product_key(p)
+        if k in hedefler:
+            p["price_threshold_tl"] = float(hedefler[k])
+    return products
+
+
+def _tg_dosya() -> dict:
+    d = load_yaml(TELEGRAM_URUNLER) if TELEGRAM_URUNLER.exists() else {}
+    d.setdefault("eklenen", [])
+    d.setdefault("kaldirilan", [])
+    d.setdefault("hedefler", {})
+    return d
+
+
+def tg_urun_ekle(label: str, url: str, hedef: float) -> dict:
+    d = _tg_dosya()
+    prod = {"label": label, "url": url, "mode": "price",
+            "price_threshold_tl": hedef, "cooldown_minutes": 1440,
+            "sleep_min": 900, "sleep_max": 1800}
+    d["eklenen"].append(prod)
+    if label in d["kaldirilan"]:
+        d["kaldirilan"].remove(label)
+    save_yaml_atomic(TELEGRAM_URUNLER, d)
+    return prod
+
+
+def tg_urun_sil(key: str) -> None:
+    """Telegram'dan eklenen ürünü listeden çıkarır; products.yaml ürünüyse
+    'kaldirilan' listesine yazarak devre dışı bırakır (dosyaya dokunmadan)."""
+    d = _tg_dosya()
+    once = len(d["eklenen"])
+    d["eklenen"] = [p for p in d["eklenen"] if product_key(p) != key]
+    if len(d["eklenen"]) == once and key not in d["kaldirilan"]:
+        d["kaldirilan"].append(key)
+    d["hedefler"].pop(key, None)
+    save_yaml_atomic(TELEGRAM_URUNLER, d)
+
+
+def tg_hedef_degistir(key: str, hedef: float) -> None:
+    d = _tg_dosya()
+    for p in d["eklenen"]:
+        if product_key(p) == key:
+            p["price_threshold_tl"] = hedef
+            break
+    else:
+        d["hedefler"][key] = hedef
+    save_yaml_atomic(TELEGRAM_URUNLER, d)
+
+
+def etiket_uret(url: str) -> str:
+    """/ekle'de etiket verilmezse URL'den okunaklı bir ad türetir."""
+    pr = urlparse(url)
+    seg = [s for s in pr.path.split("/") if s]
+    ad = seg[-1] if seg else pr.netloc
+    ad = re.sub(r"\.(html?|php|aspx?)$", "", ad)
+    ad = re.sub(r",\d+$", "", ad)                 # akakce ",1234567" son eki
+    ad = re.sub(r"[-_+]", " ", ad)
+    ad = re.sub(r"\s+", " ", ad).strip()[:48]
+    return ad or pr.netloc
+
+
+# ===================== DURUM / GEÇMİŞ =====================
+
 class State:
-    """state.json — mükerrer bildirim engelleme + son iyi fiyat + hata serileri.
+    """state.json — mükerrer bildirim engelleme + son iyi fiyat + günlük minimumlar.
     Atomik yazılır (tmp + replace): bot yazma sırasında ölse bile dosya bozulmaz."""
 
     def __init__(self, path: Path):
@@ -187,6 +281,51 @@ async def append_history(label: str, site: str, price: float | None,
                 {True: "1", False: "0"}.get(in_stock, ""),
                 source,
             ])
+
+
+# --- Günlük minimum takibi: 30-gün-dibi sinyali + 7 günlük trend buradan beslenir ---
+
+def gunluk_min_guncelle(st: dict, fp: float) -> None:
+    """Bugünün en düşük okumasını state'e işler, 35 günden eskiyi budar."""
+    dmin = st.setdefault("daily_min", {})
+    bugun = date.today().isoformat()
+    dmin[bugun] = min(fp, dmin.get(bugun, fp))
+    sinir = (date.today() - timedelta(days=35)).isoformat()
+    for g in [g for g in dmin if g < sinir]:
+        del dmin[g]
+
+
+def dip30_oncesi(st: dict) -> tuple[float | None, int]:
+    """Bugün HARİÇ son 30-35 günün en düşük fiyatı + kaç günlük veri olduğu."""
+    dmin = st.get("daily_min") or {}
+    bugun = date.today().isoformat()
+    onceki = [v for g, v in dmin.items() if g != bugun]
+    if not onceki:
+        return None, 0
+    return min(onceki), len(onceki)
+
+
+def yedi_gun_degisim(st: dict) -> float | None:
+    """Son iyi fiyatın ~7 gün önceki günlük minimuma göre % değişimi."""
+    fp = st.get("last_good_price")
+    dmin = st.get("daily_min") or {}
+    if not fp or not dmin:
+        return None
+    bugun = date.today()
+    adaylar = []
+    for g, v in dmin.items():
+        try:
+            yas = (bugun - date.fromisoformat(g)).days
+        except ValueError:
+            continue
+        if 4 <= yas <= 10:
+            adaylar.append((abs(yas - 7), v))
+    if not adaylar:
+        return None
+    eski = min(adaylar)[1]
+    if eski <= 0:
+        return None
+    return (fp - eski) / eski * 100
 
 
 # ===================== SİTE STRATEJİLERİ =====================
@@ -572,26 +711,32 @@ class Notifier:
             logging.error("BİLDİRİM GÖNDERİLEMEDİ! (Telegram + CallMeBot ikisi de başarısız)")
             return False
 
-    async def send_document(self, path: Path, caption: str = "") -> bool:
-        """Dosya gönderir (/csv ve /grafik komutları için)."""
+    async def _send_file(self, method: str, field: str, path: Path,
+                         mime: str, caption: str) -> bool:
         if not self.token or not self.chat_id:
             return False
-        mime = {".csv": "text/csv", ".html": "text/html"}.get(
-            path.suffix.lower(), "application/octet-stream")
         try:
-            resp = await self.rq.post(f"{self.api}/sendDocument", multipart={
+            resp = await self.rq.post(f"{self.api}/{method}", multipart={
                 "chat_id": self.chat_id,
                 "caption": caption,
-                "document": {"name": path.name, "mimeType": mime,
-                             "buffer": path.read_bytes()},
+                field: {"name": path.name, "mimeType": mime,
+                        "buffer": path.read_bytes()},
             }, timeout=120000)
             js = await resp.json()
             if not js.get("ok"):
-                logging.warning(f"Telegram sendDocument hatası: {js.get('description')}")
+                logging.warning(f"Telegram {method} hatası: {js.get('description')}")
             return bool(js.get("ok"))
         except Exception as e:
             logging.warning(f"Telegram dosya gönderimi başarısız: {e}")
             return False
+
+    async def send_document(self, path: Path, caption: str = "") -> bool:
+        mime = {".csv": "text/csv", ".html": "text/html"}.get(
+            path.suffix.lower(), "application/octet-stream")
+        return await self._send_file("sendDocument", "document", path, mime, caption)
+
+    async def send_photo(self, path: Path, caption: str = "") -> bool:
+        return await self._send_file("sendPhoto", "photo", path, "image/png", caption)
 
 
 # ===================== KONTROL + KARAR =====================
@@ -718,6 +863,9 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                                    settings.get("renotify_drop_pct", 3)))
     sanity_guard = bool(settings.get("sanity_guard", True))
     error_alert_streak = int(settings.get("error_alert_streak", 5))
+    low30_alert = bool(settings.get("low30_alert", True))
+    low30_min_days = int(settings.get("low30_min_days", 7))
+    low30_cooldown = timedelta(minutes=int(settings.get("low30_cooldown_minutes", 1440)))
 
     while True:
         quick_recheck = False
@@ -768,9 +916,28 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                         st.pop("pending_price", None)
 
                     if fp is not None and not supheli:
+                        # 30-gün dibi bugünkü okuma işlenmeden ÖNCE hesaplanmalı
+                        dip, gun_sayisi = dip30_oncesi(st)
+                        gunluk_min_guncelle(st, fp)
                         st["last_good_price"] = fp
                         st["last_good_ts"] = time.time()
                         st["last_good_host"] = best["host"]
+
+                        # 📉 Hedefe inmese bile "son 30 günün en düşüğü" bilgisi.
+                        # Hedef alarmı zaten atılacaksa mükerrer mesaj atılmaz.
+                        if (low30_alert and not gerekli and dip is not None
+                                and gun_sayisi >= low30_min_days and fp < dip):
+                            son_dip_ts = st.get("low30_notify_ts", 0)
+                            if (datetime.now() - datetime.fromtimestamp(son_dip_ts)
+                                    > low30_cooldown):
+                                thr = prod.get("price_threshold_tl")
+                                hedef_txt = f", hedef {tl(float(thr))}" if thr else ""
+                                await notifier.send(
+                                    f"📉 {label} son 30 günün en düşüğünde!\n"
+                                    f"💰 {tl(fp)} (önceki dip {tl(dip)}{hedef_txt})\n"
+                                    f"🌐 {best['host']}\n🔗 {best['url']}")
+                                st["low30_notify_ts"] = time.time()
+                                logging.info(f"[{label}] 30-gün dibi bildirildi: {tl(fp)}")
 
                     if gerekli and not supheli:
                         son_ts = st.get("last_notify_ts", 0)
@@ -811,10 +978,47 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                                                int(prod.get("sleep_max", 600))))
 
 
-# ===================== TELEGRAM KOMUTLARI + HEARTBEAT =====================
+class WatcherManager:
+    """İzleyici görevlerini ürün anahtarına göre yönetir. Telegram'dan ürün
+    eklenince/silinince/hedef değişince izleyiciler CANLI güncellenir —
+    bot yeniden başlatılmaz."""
+
+    def __init__(self, context: BrowserContext, sites: Sites, throttle: HostThrottle,
+                 notifier: Notifier, state: State, settings: dict):
+        self.context = context
+        self.sites = sites
+        self.throttle = throttle
+        self.notifier = notifier
+        self.state = state
+        self.settings = settings
+        self.sem = asyncio.Semaphore(int(settings.get("max_concurrency", 3)))
+        self.tasks: dict[str, asyncio.Task] = {}
+
+    def sync(self, products: list[dict], force: set[str] = frozenset()) -> None:
+        """Ürün listesini görevlerle eşitler. force'taki anahtarlar yeniden
+        başlatılır (hedef değişikliği yeni ayarla devam etsin diye)."""
+        istenen = {product_key(p): p for p in products}
+        for key in list(self.tasks):
+            if key not in istenen or key in force:
+                self.tasks.pop(key).cancel()
+                logging.info(f"[{key}] izleyici durduruldu.")
+        for key, p in istenen.items():
+            if key not in self.tasks or self.tasks[key].done():
+                self.tasks[key] = asyncio.create_task(product_watcher(
+                    self.context, self.sites, self.throttle, self.notifier,
+                    p, self.state, self.sem, self.settings))
+                logging.info(f"[{key}] izleyici başlatıldı.")
+
+    def cancel_all(self) -> list[asyncio.Task]:
+        for t in self.tasks.values():
+            t.cancel()
+        return list(self.tasks.values())
+
+
+# ===================== ÖZET / GRAFİK =====================
 
 def durum_ozeti(products: list, state: State) -> str:
-    """Ürün başına son bilinen fiyat + hedef + bayatlık işareti."""
+    """Ürün başına son bilinen fiyat + hedef + 7 günlük trend + bayatlık işareti."""
     satirlar = []
     for p in products:
         st = state.get(product_key(p))
@@ -829,13 +1033,64 @@ def durum_ozeti(products: list, state: State) -> str:
             bayat = " ⚠️ hiç okunamadı!"
         hedef = f" / hedef {tl(float(thr))}" if thr else ""
         kaynak = f" ({host})" if host else ""
-        satirlar.append(f"• {p.get('label', '?')}: {tl(fp)}{hedef}{kaynak}{bayat}")
+        d7 = yedi_gun_degisim(st)
+        trend = f" {pct(d7)}/7g" if d7 is not None else ""
+        satirlar.append(f"• {p.get('label', '?')}: {tl(fp)}{hedef}{trend}{kaynak}{bayat}")
     return "\n".join(satirlar)
 
 
-async def telegram_listener(notifier: Notifier, products: list, state: State) -> None:
-    """Uzun sorgulamayla (getUpdates) komut dinler: /durum /grafik /csv /yardim.
-    Sadece products.yaml'daki chat_id'den gelen komutlar işlenir."""
+async def grafik_png(context: BrowserContext) -> Path:
+    """fiyat_grafigi.html'i üretir, tarayıcıda açıp PNG'ye çeker (sendPhoto için)."""
+    import grafik
+    html = grafik.generate()
+    page = await context.new_page()
+    try:
+        await page.set_viewport_size({"width": 900, "height": 700})
+        await page.goto(html.as_uri())
+        await page.wait_for_timeout(1500)
+        await page.screenshot(path=str(GRAFIK_PNG), full_page=True)
+    finally:
+        await page.close()
+    return GRAFIK_PNG
+
+
+# ===================== TELEGRAM KOMUTLARI + HEARTBEAT =====================
+
+def liste_metni(products: list) -> str:
+    if not products:
+        return "İzlenen ürün yok. Eklemek için:\n/ekle <link> <hedefTL> [etiket]"
+    satirlar = []
+    for i, p in enumerate(products, 1):
+        thr = p.get("price_threshold_tl")
+        hedef = f" — hedef {tl(float(thr))}" if thr else ""
+        satirlar.append(f"{i}. {p.get('label', '?')}{hedef}")
+    return "\n".join(satirlar)
+
+
+YARDIM = ("Komutlar:\n"
+          "/durum — son fiyatlar + 7g trend\n"
+          "/liste — izlenen ürünler (numaralı)\n"
+          "/ekle <link> <hedefTL> [etiket] — ürün ekle\n"
+          "/sil <no> — ürünü izlemeden çıkar\n"
+          "/hedef <no> <fiyatTL> — hedef fiyatı değiştir\n"
+          "/grafik — fiyat grafiği (PNG + HTML)\n"
+          "/csv — ham fiyat geçmişi")
+
+
+def _urun_no(parca: list[str], products: list) -> tuple[dict | None, str]:
+    """'/sil 3' gibi komutlardaki numarayı ürüne çevirir; hata mesajı döndürür."""
+    if len(parca) < 2 or not parca[1].isdigit():
+        return None, "Numara gerekli. Önce /liste yaz, sonra örn: " + parca[0] + " 3"
+    n = int(parca[1])
+    if not 1 <= n <= len(products):
+        return None, f"Geçersiz numara: {n}. /liste ile kontrol et (1-{len(products)})."
+    return products[n - 1], ""
+
+
+async def telegram_listener(notifier: Notifier, shared: dict, state: State,
+                            manager: WatcherManager, context: BrowserContext) -> None:
+    """Uzun sorgulamayla (getUpdates) komut dinler. Sadece products.yaml'daki
+    chat_id'den gelen komutlar işlenir; yabancı sohbetler yok sayılır."""
     if not notifier.token:
         return
     offset = 0
@@ -853,7 +1108,8 @@ async def telegram_listener(notifier: Notifier, products: list, state: State) ->
                 text = (msg.get("text") or "").strip()
                 if not text.startswith("/"):
                     continue
-                cmd = text.split()[0].lower().split("@")[0]
+                parca = text.split()
+                cmd = parca[0].lower().split("@")[0]
 
                 if not notifier.chat_id:
                     # kurulum kolaylığı: chat_id ayarlı değilken /start'a id ile cevap ver
@@ -866,23 +1122,69 @@ async def telegram_listener(notifier: Notifier, products: list, state: State) ->
                 if chat != notifier.chat_id:
                     continue  # yabancı sohbet — yok say
 
+                products = shared["products"]
                 if cmd in ("/start", "/yardim", "/help"):
-                    await notifier.send("Komutlar:\n/durum — son fiyatlar\n"
-                                        "/grafik — fiyat grafiği (HTML dosyası)\n"
-                                        "/csv — ham fiyat geçmişi")
+                    await notifier.send(YARDIM)
+
                 elif cmd == "/durum":
                     await notifier.send("📊 Durum:\n" + durum_ozeti(products, state))
+
+                elif cmd == "/liste":
+                    await notifier.send("📋 İzlenen ürünler:\n" + liste_metni(products))
+
+                elif cmd == "/ekle":
+                    url = parca[1] if len(parca) > 1 else ""
+                    hedef = parse_try_amount(parca[2]) if len(parca) > 2 else None
+                    if not url.startswith("http") or not hedef:
+                        await notifier.send("Kullanım: /ekle <link> <hedefTL> [etiket]\n"
+                                            "Örn: /ekle https://www.akakce.com/... 13500 "
+                                            "Ryzen 7800X3D")
+                        continue
+                    label = " ".join(parca[3:]).strip() or etiket_uret(url)
+                    if any(product_key(p) == label for p in products):
+                        await notifier.send(f"'{label}' zaten listede. "
+                                            "Farklı bir etiket ver.")
+                        continue
+                    tg_urun_ekle(label, url, hedef)
+                    shared["products"] = load_products()
+                    manager.sync(shared["products"])
+                    await notifier.send(f"✅ Eklendi: {label}\n"
+                                        f"hedef {tl(hedef)} — ilk kontrol başlıyor.")
+
+                elif cmd == "/sil":
+                    p, hata = _urun_no(parca, products)
+                    if p is None:
+                        await notifier.send(hata)
+                        continue
+                    tg_urun_sil(product_key(p))
+                    shared["products"] = load_products()
+                    manager.sync(shared["products"])
+                    await notifier.send(f"🗑️ İzlemeden çıkarıldı: {p.get('label', '?')}")
+
+                elif cmd == "/hedef":
+                    p, hata = _urun_no(parca, products)
+                    yeni = parse_try_amount(parca[2]) if len(parca) > 2 else None
+                    if p is None or not yeni:
+                        await notifier.send(hata or "Kullanım: /hedef <no> <fiyatTL>\n"
+                                                    "Örn: /hedef 3 12750")
+                        continue
+                    tg_hedef_degistir(product_key(p), yeni)
+                    shared["products"] = load_products()
+                    manager.sync(shared["products"], force={product_key(p)})
+                    await notifier.send(f"🎯 {p.get('label', '?')} yeni hedef: {tl(yeni)}")
+
                 elif cmd == "/csv":
                     if HISTORY_CSV.exists():
                         await notifier.send_document(HISTORY_CSV, "Ham fiyat geçmişi")
                     else:
                         await notifier.send("Henüz fiyat kaydı yok.")
+
                 elif cmd == "/grafik":
                     try:
-                        import grafik
-                        out = grafik.generate()
+                        png = await grafik_png(context)
+                        await notifier.send_photo(png, "Fiyat grafiği")
                         await notifier.send_document(
-                            out, "Fiyat grafiği — indirip tarayıcıda aç")
+                            GRAFIK_HTML, "Etkileşimli sürüm — indirip tarayıcıda aç")
                     except Exception as e:
                         await notifier.send(f"Grafik üretilemedi: {e}")
         except asyncio.CancelledError:
@@ -892,9 +1194,10 @@ async def telegram_listener(notifier: Notifier, products: list, state: State) ->
             await asyncio.sleep(10)
 
 
-async def heartbeat(notifier: Notifier, settings: dict, products: list,
-                    state: State) -> None:
-    """Her gün belirli saatte 'bot yaşıyor' + fiyat özeti — sessiz ölümü fark et."""
+async def heartbeat(notifier: Notifier, settings: dict, shared: dict,
+                    state: State, context: BrowserContext) -> None:
+    """Her gün belirli saatte 'bot yaşıyor' + fiyat özeti + 7g trend.
+    Haftada bir (weekly_chart_day) grafik PNG olarak da gelir."""
     saat = settings.get("heartbeat_hour")
     if saat is None:
         return
@@ -904,8 +1207,17 @@ async def heartbeat(notifier: Notifier, settings: dict, products: list,
         if hedef <= simdi:
             hedef += timedelta(days=1)
         await asyncio.sleep((hedef - simdi).total_seconds())
+
+        products = shared["products"]
         await notifier.send(f"✅ Takip botu çalışıyor — {len(products)} ürün izleniyor.\n"
                             + durum_ozeti(products, state))
+        gun = settings.get("weekly_chart_day", 0)
+        if gun is not None and datetime.now().weekday() == int(gun):
+            try:
+                png = await grafik_png(context)
+                await notifier.send_photo(png, "📈 Haftalık fiyat grafiği")
+            except Exception as e:
+                logging.warning(f"Haftalık grafik gönderilemedi: {e}")
 
 
 # ===================== ANA =====================
@@ -913,7 +1225,7 @@ async def heartbeat(notifier: Notifier, settings: dict, products: list,
 def load_config() -> tuple[dict, list, Sites]:
     cfg = load_yaml(PRODUCTS_YAML)
     settings = cfg.get("settings", {})
-    products = [p for p in cfg.get("products", []) if p.get("enabled", True)]
+    products = load_products()
     sites = Sites(load_yaml(SITES_YAML))
     return settings, products, sites
 
@@ -934,7 +1246,6 @@ async def main() -> None:
         logging.error("products.yaml içinde aktif ürün yok.")
         return
     state = State(STATE_FILE)
-    sem = asyncio.Semaphore(int(settings.get("max_concurrency", 3)))
     throttle = HostThrottle(float(settings.get("min_gap_per_host_seconds", 25)))
 
     async with async_playwright() as p:
@@ -944,21 +1255,36 @@ async def main() -> None:
         # Telegram sayesinde QR/oturum derdi yok → varsayılan headless
         context = await launch_context(p, bool(settings.get("headless", True)))
 
-        tasks = [asyncio.create_task(product_watcher(
-                     context, sites, throttle, notifier, prod, state, sem, settings))
-                 for prod in products]
-        tasks.append(asyncio.create_task(heartbeat(notifier, settings, products, state)))
-        tasks.append(asyncio.create_task(telegram_listener(notifier, products, state)))
+        # Açılış mesajı — watchdog yeniden başlatınca haber ver; ama bot kısa
+        # aralıklarla arka arkaya başlıyorsa (çökme döngüsü) mesaj spam'i yapma
+        meta = state.get("_meta")
+        son_baslangic = meta.get("last_start_ts", 0)
+        meta["last_start_ts"] = time.time()
+        await state.save()
+        if time.time() - son_baslangic > 1800:
+            await notifier.send(f"🔄 Takip botu başlatıldı — {len(products)} ürün izleniyor. "
+                                "(/yardim ile komutlar)")
+        else:
+            logging.warning("30 dk içinde ikinci başlatma — açılış mesajı atlandı "
+                            "(çökme döngüsü koruması). Sık oluyorsa takip.log'a bak!")
+
+        shared = {"products": products}
+        manager = WatcherManager(context, sites, throttle, notifier, state, settings)
+        manager.sync(products)
+        hb = asyncio.create_task(heartbeat(notifier, settings, shared, state, context))
+        lst = asyncio.create_task(telegram_listener(notifier, shared, state,
+                                                    manager, context))
         logging.info(f"{len(products)} ürün izleniyor. Durdurmak için Ctrl+C. "
-                     "Telegram'dan /durum yazabilirsin.")
+                     "Telegram'dan /yardim yazabilirsin.")
         try:
-            await asyncio.gather(*tasks)
+            await asyncio.gather(hb, lst)
         except (KeyboardInterrupt, asyncio.CancelledError):
             logging.info("Durduruluyor...")
-            for t in tasks:
-                t.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
         finally:
+            izleyiciler = manager.cancel_all()
+            hb.cancel()
+            lst.cancel()
+            await asyncio.gather(*izleyiciler, hb, lst, return_exceptions=True)
             await context.close()
             await rq.dispose()
 
@@ -997,7 +1323,7 @@ async def run_test() -> None:
             print("Token hatalı veya boş — products.yaml → telegram_bot_token")
             await rq.dispose()
             return
-        ok = await n.send("✅ Takip botu PRO v3 kurulumu tamam! (Telegram birincil kanal)")
+        ok = await n.send("✅ Takip botu PRO v4 kurulumu tamam! /yardim ile komutları gör.")
         print("Sonuç:", "GÖNDERİLDİ ✔" if ok else
               "GÖNDERİLEMEDİ ✖ — chat_id ayarlı mı? (python takip_botu_pro.py chatid)")
         await rq.dispose()
