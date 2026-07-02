@@ -177,10 +177,15 @@ def load_products() -> list[dict]:
     kaldirilan = set(tg.get("kaldirilan") or [])
     products = [p for p in products if product_key(p) not in kaldirilan]
     hedefler = tg.get("hedefler") or {}
+    kaynaklar = tg.get("ek_kaynaklar") or {}
     for p in products:
         k = product_key(p)
         if k in hedefler:
             p["price_threshold_tl"] = float(hedefler[k])
+        # /akakce ile bağlanan ek kaynaklar LİSTENİN BAŞINA gelir (Akakçe birincil)
+        if k in kaynaklar:
+            ek = [u for u in kaynaklar[k] if u]
+            p["urls"] = ek + [u for u in product_urls(p) if u not in ek]
     return products
 
 
@@ -189,7 +194,17 @@ def _tg_dosya() -> dict:
     d.setdefault("eklenen", [])
     d.setdefault("kaldirilan", [])
     d.setdefault("hedefler", {})
+    d.setdefault("ek_kaynaklar", {})
     return d
+
+
+def tg_kaynak_ekle(key: str, url: str) -> None:
+    """Ürüne ek kaynak bağlar (Akakçe linki başa gelir → birincil kaynak olur)."""
+    d = _tg_dosya()
+    lst = d["ek_kaynaklar"].setdefault(key, [])
+    if url not in lst:
+        lst.insert(0, url)
+    save_yaml_atomic(TELEGRAM_URUNLER, d)
 
 
 def tg_urun_ekle(label: str, url: str, hedef: float) -> dict:
@@ -213,6 +228,7 @@ def tg_urun_sil(key: str) -> None:
     if len(d["eklenen"]) == once and key not in d["kaldirilan"]:
         d["kaldirilan"].append(key)
     d["hedefler"].pop(key, None)
+    d["ek_kaynaklar"].pop(key, None)
     save_yaml_atomic(TELEGRAM_URUNLER, d)
 
 
@@ -532,6 +548,60 @@ async def get_seller(page: Page, strat: dict) -> str | None:
         return text[:60] if text else None
     except Exception:
         return None
+
+
+AKAKCE_ARAMA = "https://www.akakce.com/arama/?q={}"
+
+
+async def _akakce_sonuc_ayikla(page: Page) -> list[dict]:
+    """Açık Akakçe arama sayfasından ürün sayfası linklerini toplar.
+    Sayfa yapısına değil, Akakçe'nin değişmez URL kalıbına dayanır:
+    ürün sayfaları daima '...-fiyati,ID.html' biçimindedir."""
+    out, gorulen = [], set()
+    anchors = page.locator("a[href*='fiyati,']")
+    for i in range(min(await anchors.count(), 25)):
+        try:
+            a = anchors.nth(i)
+            href = await a.get_attribute("href") or ""
+            if not re.search(r"fiyati,\d+\.html", href):
+                continue
+            if href.startswith("/"):
+                href = "https://www.akakce.com" + href
+            href = href.split("?")[0]
+            if href in gorulen:
+                continue
+            ad = " ".join(((await a.inner_text()) or "").split()).strip()
+            if not ad:
+                ad = (await a.get_attribute("title") or "").strip()
+            if not ad:
+                continue
+            gorulen.add(href)
+            out.append({"ad": ad[:70], "url": href})
+            if len(out) == 3:
+                break
+        except Exception:
+            continue
+    return out
+
+
+async def akakce_ara(context: BrowserContext, throttle: HostThrottle,
+                     query: str, arama_url: str | None = None) -> list[dict]:
+    """Akakçe'de ürün adıyla arar, ilk 3 ürün sayfasını döndürür.
+    /akakce komutu bunları buton yapar, kullanıcı doğrusunu seçer."""
+    url = arama_url or AKAKCE_ARAMA.format(quote_plus(query))
+    host = urlparse(url).netloc or "www.akakce.com"
+    async with throttle.slot(host):
+        page = await context.new_page()
+        try:
+            await apply_stealth(page)
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            except PWTimeout:
+                pass
+            await asyncio.sleep(2.5)
+            return await _akakce_sonuc_ayikla(page)
+        finally:
+            await page.close()
 
 
 async def detect_block(page: Page) -> bool:
@@ -1094,6 +1164,7 @@ YARDIM = ("🛒 Ürün eklemek için ürün linkini DİREKT GÖNDER yeter —\n"
           "/liste — izlenen ürünler (numaralı)\n"
           "/sil <no> — ürünü izlemeden çıkar\n"
           "/hedef <no> <fiyatTL> — hedef fiyatı değiştir\n"
+          "/akakce <no> — ürünü Akakçe'ye bağla (tüm satıcıların en ucuzu)\n"
           "/grafik — fiyat grafiği (PNG + HTML)\n"
           "/csv — ham fiyat geçmişi\n"
           "(/ekle <link> [hedefTL] [etiket] de çalışır)")
@@ -1198,6 +1269,7 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
                     bekleyen = shared.get("bekleyen_urun")
                     if data == "iptal":
                         shared.pop("bekleyen_urun", None)
+                        shared.pop("bekleyen_akakce", None)
                         await notifier.send("Vazgeçildi.")
                     elif data == "elle" and bekleyen:
                         bekleyen["elle"] = True
@@ -1207,6 +1279,20 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
                         yuzde = float(data.split("|", 1)[1])
                         hedef = round(bekleyen["fiyat"] * (1 - yuzde / 100))
                         await urun_ekle_bitir(manager, notifier, shared, hedef)
+                    elif data.startswith("akakce|"):
+                        ba = shared.get("bekleyen_akakce")
+                        i = int(data.split("|", 1)[1])
+                        if ba and 0 <= i < len(ba["adaylar"]):
+                            aday = ba["adaylar"][i]
+                            tg_kaynak_ekle(ba["key"], aday["url"])
+                            shared["products"] = load_products()
+                            manager.sync(shared["products"], force={ba["key"]})
+                            shared.pop("bekleyen_akakce", None)
+                            await notifier.send(
+                                f"✅ {ba['key']} artık Akakçe'den de izleniyor "
+                                "(en ucuz satıcı öncelikli).\n"
+                                f"🌐 {aday['url']}\n"
+                                "Kontrol için: /durum")
                     continue
 
                 msg = u.get("message") or {}
@@ -1303,6 +1389,30 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
                     manager.sync(shared["products"], force={product_key(p)})
                     await notifier.send(f"🎯 {p.get('label', '?')} yeni hedef: {tl(yeni)}")
 
+                elif cmd == "/akakce":
+                    p, hata = _urun_no(parca, products)
+                    if p is None:
+                        await notifier.send(hata if "Geçersiz" in hata else
+                                            "Kullanım: /akakce <no>\nÖnce /liste ile "
+                                            "numarayı bul. Örn: /akakce 3")
+                        continue
+                    await notifier.send(f"🔎 Akakçe'de aranıyor: {p.get('label', '?')} "
+                                        "(10-20 sn)...")
+                    adaylar = await akakce_ara(manager.context, manager.throttle,
+                                               p.get("label", ""))
+                    if not adaylar:
+                        await notifier.send("Akakçe'de sonuç bulamadım. İstersen ürünün "
+                                            "Akakçe linkini kendin bulup bana gönder — "
+                                            "yeni kaynak olarak eklerim.")
+                        continue
+                    shared["bekleyen_akakce"] = {"key": product_key(p),
+                                                 "adaylar": adaylar}
+                    rows = [[{"text": a["ad"][:60], "callback_data": f"akakce|{i}"}]
+                            for i, a in enumerate(adaylar)]
+                    rows.append([{"text": "❌ Hiçbiri değil", "callback_data": "iptal"}])
+                    await notifier.send_buttons(
+                        f"Akakçe'de bulduklarım — hangisi '{p.get('label', '?')}'?", rows)
+
                 elif cmd == "/csv":
                     if HISTORY_CSV.exists():
                         await notifier.send_document(HISTORY_CSV, "Ham fiyat geçmişi")
@@ -1317,6 +1427,9 @@ async def telegram_listener(notifier: Notifier, shared: dict, state: State,
                             GRAFIK_HTML, "Etkileşimli sürüm — indirip tarayıcıda aç")
                     except Exception as e:
                         await notifier.send(f"Grafik üretilemedi: {e}")
+
+                else:
+                    await notifier.send("Bu komutu bilmiyorum.\n\n" + YARDIM)
         except asyncio.CancelledError:
             raise
         except Exception as e:

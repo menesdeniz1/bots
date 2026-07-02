@@ -50,6 +50,7 @@ doğru `price_selector` yaz (sayfada sağ tık → İncele → fiyat elementinin
 | `/ekle <link> [hedefTL] [etiket]` | Hedefsiz verirsen butonlu akış açılır |
 | `/sil <no>` | Ürünü izlemeden çıkar |
 | `/hedef <no> <fiyatTL>` | Hedef fiyatı değiştir |
+| `/akakce <no>` | Ürünü adıyla Akakçe'de arar, butonla onaylarsın → Akakçe birincil kaynak olur |
 | `/grafik` | Grafik: PNG (hızlı bakış) + HTML (etkileşimli) gönderir |
 | `/csv` | Ham fiyat geçmişini gönderir |
 | `/yardim` | Komut listesi |
@@ -88,9 +89,17 @@ loglar.
 
 ## Akakçe birincil kurgusu (çoklu kaynak)
 
-Ürüne `url` yerine `urls` listesi ver — bot **hepsini** kontrol eder, **en ucuzunu**
-bildirir. İlk sıraya Akakçe linkini koy: tüm satıcıların en ucuzu tek sayfadadır,
-mağaza linki de yedek kaynak olur. Akakçe'de en ucuz satıcının adı bildirime eklenir.
+ÖNEMLİ: Bot ürünleri **kendiliğinden Akakçe'de aramaz** — sadece listedeki
+linklere bakar. Bir ürünü Akakçe'ye bağlamanın iki yolu var:
+
+1. **Telefondan (kolay):** `/akakce <no>` — bot ürün adıyla Akakçe'de arar,
+   bulduğu ilk 3 ürün sayfasını buton yapar, doğrusuna tıklarsın. O andan
+   itibaren Akakçe o ürünün **birincil** kaynağı olur (tüm satıcıların en ucuzu),
+   mevcut mağaza linki yedek kaynak olarak kalır.
+2. **Elle:** ürüne `url` yerine `urls` listesi ver, ilk sıraya Akakçe linkini koy.
+
+Bot her turda ürünün tüm kaynaklarını kontrol eder ve **en ucuzunu** bildirir;
+Akakçe'de en ucuz satıcının adı da bildirime eklenir.
 
 ```yaml
 - label: "AMD Ryzen 7 7800X3D"
