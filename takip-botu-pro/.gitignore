@@ -3,5 +3,6 @@
 state.json
 state.json.tmp
 fiyat_gecmisi.csv
+fiyat_grafigi.html
 *.log
 __pycache__/

@@ -32,6 +32,10 @@ sites:
 
   akakce.com:
     price_selector: "span.pt_v8"        # sayfadaki EN UCUZ satıcı fiyatı
+    # En ucuz satıcının adı (bildirime eklenir). Site yapısı değişirse
+    # tarayıcıda incele'yle satıcı elementini bulup burayı güncelle;
+    # bulunamazsa bot sessizce atlar, fiyat takibi etkilenmez.
+    seller_selector: "#PL > li:first-child img[alt]"
     wait_after_page_load: 3
 
   tebilon.com:

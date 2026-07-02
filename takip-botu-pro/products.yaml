@@ -1,9 +1,16 @@
 # ============== GENEL AYARLAR ==============
 settings:
-  phone: "90XXXXXXXXXX"          # WhatsApp numaran (başında + olmadan, ülke koduyla)
-  whatsapp_web: true             # Ana kanal: WhatsApp Web (ilk açılışta QR okut)
-  callmebot_apikey: ""           # YEDEK kanal (önerilir): callmebot.com'dan ücretsiz al
-  headless: false                # QR okutup oturum açtıktan sonra true yapabilirsin
+  # --- Telegram (BİRİNCİL kanal) ---
+  # 1) Telegram'da @BotFather'a "/newbot" yaz → token'ı buraya koy
+  # 2) Botuna /start yaz → "python takip_botu_pro.py chatid" → çıkan id'yi buraya koy
+  telegram_bot_token: ""
+  telegram_chat_id: ""
+
+  # --- CallMeBot (YEDEK kanal, isteğe bağlı — WhatsApp'a düşer) ---
+  callmebot_apikey: ""           # callmebot.com'dan ücretsiz al
+  phone: "90XXXXXXXXXX"          # sadece CallMeBot yedeği için (başında + olmadan)
+
+  headless: true                 # Telegram sayesinde QR yok → tam headless çalışır
   max_concurrency: 3             # Aynı anda kaç ürün kontrol edilsin
   heartbeat_hour: 9              # Her gün bu saatte "bot yaşıyor" + fiyat özeti (kapatmak: null)
   min_gap_per_host_seconds: 25   # Aynı siteye iki istek arasındaki minimum saniye
@@ -14,6 +21,20 @@ settings:
 # ============== ÜRÜNLER ==============
 # mode: price (PC parçası) | stock (beden takibi) | price+stock
 # sleep_min/max: saniye cinsinden kontrol aralığı (ürün başına)
+#
+# ÇOKLU KAYNAK (Akakçe birincil kurgusu):
+#   "url" yerine "urls" listesi ver → bot HEPSİNİ kontrol eder, EN UCUZUNU bildirir.
+#   İlk sıraya ürünün Akakçe linkini koy: tüm satıcıların en ucuzu tek sayfadadır,
+#   böylece site site gezmeden fırsatı yakalarsın; mağaza linki de yedek kaynak olur.
+#   Örnek:
+#   - label: "AMD Ryzen 7 7800X3D"
+#     urls:
+#       - "https://www.akakce.com/islemci/en-ucuz-amd-ryzen-7-7800x3d-fiyati,XXXXXXX.html"
+#       - "https://www.amazon.com.tr/dp/B0CJML6LQZ"
+#     mode: price
+#     price_threshold_tl: 13500
+#
+# NOT: Her ürünün Akakçe linkini akakce.com'da aratıp "urls" listesinin başına ekle.
 products:
   - label: "Palit RTX 5070 Ti GamingPro-S 16GB"
     url: "https://www.amazon.com.tr/dp/B0FCKZJCQK"

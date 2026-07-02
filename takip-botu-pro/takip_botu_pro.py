@@ -1,35 +1,41 @@
 # -*- coding: utf-8 -*-
 """
-STOK + FİYAT TAKİP BOTU — PRO v2
-=================================
+STOK + FİYAT TAKİP BOTU — PRO v3 (Telegram + Akakçe birincil)
+==============================================================
 Motor    : Playwright (Chromium, kalıcı profil, stealth) → JS'li Türk sitelerinde çalışır
-Bildirim : 1) WhatsApp Web (gönderim DOĞRULANIR)  2) başarısızsa CallMeBot API (yedek kanal)
+Bildirim : 1) Telegram Bot API (HTTPS, tarayıcı gerekmez, çok stabil)
+           2) başarısızsa CallMeBot API (WhatsApp'a düşen yedek kanal)
 Durum    : state.json → bot yeniden başlasa da mükerrer bildirim atmaz (cooldown + tekrar-düşüş)
-Geçmiş   : her okuma fiyat_gecmisi.csv'ye eklenir (zaman;urun;fiyat;stok;kaynak)
+Geçmiş   : her okuma fiyat_gecmisi.csv'ye eklenir → grafik.py ile HTML grafik
 
-Modlar (products.yaml içinde ürün başına):
-  price        → fiyat hedefin altına inince bildir (PC parçaları)
-  stock        → beden/varyant seçilebiliyor + sepete ekle aktifse bildir (ayakkabı/kıyafet)
-  price+stock  → ikisi birden sağlanınca bildir
+v3 ile gelenler (v2 üzerine):
+  • WhatsApp Web tamamen kalktı → QR yok, tarayıcı bildirimi yok, TAM HEADLESS çalışır
+  • Çoklu kaynak: ürüne 'urls' listesi ver → bot HEPSİNİ kontrol eder, EN UCUZUNU bildirir.
+    İlk sıraya Akakçe linkini koy → tüm satıcıların en ucuzu tek sayfadan (Akakçe birincil kurgusu)
+  • Telegram komutları: /durum (son fiyatlar), /grafik (HTML grafik gönderir), /csv (ham veri)
+  • Akakçe'de en ucuz satıcının adı da bildirime eklenir (sites.yaml → seller_selector)
+  • Fiyat hiç okunamayan turlar da hata serisine sayılır (seçici bozulmasını daha erken yakalar)
 
-v2 ile gelenler (eski stock-bot + takip_botu_pro birleşimi ve üzeri):
-  • Fiyat okuma zinciri: JSON-LD (@graph/offers/lowPrice/TRY kontrolü) → siteye özel seçici
-    → genel seçiciler → meta tag → gövde regex (düşük güven)
-  • Şüpheli fiyat koruması: fiyat anormal düşükse (parse hatası ihtimali) hemen bildirmez,
-    1-2 dk sonra İKİNCİ okumayla doğrular, sonra bildirir → yanlış alarm yok
-  • Site bazlı kuyruk: aynı siteye istekler arka arkaya sıkışmaz (min aralık + jitter),
-    bot koruması / captcha algılanırsa o siteye üstel geri çekilme (5 dk → 60 dk)
-  • WhatsApp oturum düştüyse fark eder, CallMeBot üzerinden "QR okut" uyarısı yollar
-  • Bir ürün üst üste N kez okunamazsa tek seferlik uyarı mesajı (seçici bozulmuş olabilir)
-  • Günlük heartbeat: "bot yaşıyor" + ürünlerin son bilinen fiyat özeti + bayat okuma uyarısı
+v2'den gelenler:
+  • Fiyat okuma zinciri: JSON-LD (@graph/offers/lowPrice/TRY) → siteye özel seçici →
+    genel seçiciler → meta tag → gövde regex (düşük güven)
+  • Şüpheli fiyat koruması: anormal düşük fiyat ikinci okumayla doğrulanır → yanlış alarm yok
+  • Site bazlı kuyruk + captcha'da üstel geri çekilme (5 dk → 60 dk)
+  • Günlük heartbeat: "bot yaşıyor" + fiyat özeti + bayat okuma uyarısı
   • Her kontrolde sekme aç-kapat → RAM sızıntısı yok
 
-Çalıştırma:
+Kurulum:
   pip install -r requirements.txt && playwright install chromium
-  python takip_botu_pro.py           → normal çalışma (ilk açılışta WhatsApp QR okut)
-  python takip_botu_pro.py test      → WhatsApp'a test mesajı gönder
-  python takip_botu_pro.py once      → tüm ürünleri BİR KEZ kontrol et, sonucu yazdır, bildirim atma
-                                       (seçici/parse hatası ayıklamak için birebir)
+  1) Telegram'da @BotFather'a /newbot yaz → token'ı products.yaml'a koy
+  2) Botuna Telegram'dan /start yaz → python takip_botu_pro.py chatid → çıkan id'yi yaml'a koy
+  3) python takip_botu_pro.py test → test mesajı gelmeli
+
+Çalıştırma:
+  python takip_botu_pro.py           → normal çalışma
+  python takip_botu_pro.py once      → tüm ürünleri BİR KEZ kontrol et, tabloyu bas, bildirim atma
+  python takip_botu_pro.py test      → Telegram'a test mesajı gönder
+  python takip_botu_pro.py chatid    → chat_id'ni öğren (bota /start yazdıktan sonra)
+  python takip_botu_pro.py grafik    → fiyat_grafigi.html üret
 """
 
 import asyncio
@@ -66,8 +72,6 @@ logging.basicConfig(
 )
 if os.getenv("STOCKBOT_DEBUG", "false").lower() == "true":
     logging.getLogger().setLevel(logging.DEBUG)
-
-WA_SEND_LOCK = asyncio.Lock()
 
 # Bot koruması / captcha sayfası işaretleri (başlık + gövdenin ilk kısmında aranır)
 BLOCK_MARKERS = [
@@ -130,6 +134,18 @@ def load_yaml(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+def product_key(prod: dict) -> str:
+    """State anahtarı: etiket (çoklu kaynakta URL tek başına ürünü temsil etmez)."""
+    return prod.get("label") or product_urls(prod)[0]
+
+
+def product_urls(prod: dict) -> list[str]:
+    """'urls' listesi varsa onu, yoksa tekil 'url'i döndürür. Sıra önemlidir:
+    Akakçe birincil kurgusunda ilk eleman Akakçe linkidir."""
+    urls = [u for u in (prod.get("urls") or []) if u]
+    return urls or [prod["url"]]
+
+
 class State:
     """state.json — mükerrer bildirim engelleme + son iyi fiyat + hata serileri.
     Atomik yazılır (tmp + replace): bot yazma sırasında ölse bile dosya bozulmaz."""
@@ -155,16 +171,18 @@ class State:
 HISTORY_LOCK = asyncio.Lock()
 
 
-async def append_history(label: str, price: float | None, in_stock, source: str) -> None:
+async def append_history(label: str, site: str, price: float | None,
+                         in_stock, source: str) -> None:
     async with HISTORY_LOCK:
         yeni = not HISTORY_CSV.exists()
         with open(HISTORY_CSV, "a", newline="", encoding="utf-8") as f:
             w = csv.writer(f, delimiter=";")
             if yeni:
-                w.writerow(["zaman", "urun", "fiyat", "stok", "kaynak"])
+                w.writerow(["zaman", "urun", "site", "fiyat", "stok", "kaynak"])
             w.writerow([
                 datetime.now().isoformat(timespec="seconds"),
                 label,
+                site,
                 f"{price:.2f}" if price is not None else "",
                 {True: "1", False: "0"}.get(in_stock, ""),
                 source,
@@ -264,7 +282,7 @@ def _jsonld_iter(node):
 
 def _price_from_jsonld_obj(obj: dict) -> float | None:
     """Bir JSON-LD düğümünden fiyat çeker. TRY dışındaki para birimlerini reddeder
-    (bazı siteler USD fiyatı da gömer)."""
+    (bazı siteler USD fiyat da gömer)."""
     for key in ("price", "lowPrice"):
         raw = obj.get(key)
         if raw is None:
@@ -344,6 +362,28 @@ async def get_price(page: Page, strat: dict) -> tuple[float | None, str]:
     except Exception:
         pass
     return None, "yok"
+
+
+async def get_seller(page: Page, strat: dict) -> str | None:
+    """Akakçe gibi karşılaştırma sitelerinde en ucuz satıcının adını çeker.
+    sites.yaml → seller_selector; bulunamazsa sessizce None."""
+    sel = strat.get("seller_selector")
+    if not sel:
+        return None
+    try:
+        el = page.locator(sel).first
+        if await el.count() == 0:
+            return None
+        text = (await el.inner_text() or "").strip()
+        if not text:
+            for attr in ("alt", "title", "aria-label"):
+                text = (await el.get_attribute(attr) or "").strip()
+                if text:
+                    break
+        text = " ".join(text.split())
+        return text[:60] if text else None
+    except Exception:
+        return None
 
 
 async def detect_block(page: Page) -> bool:
@@ -446,88 +486,65 @@ async def select_variant(page: Page, targets: list, strat: dict) -> tuple[bool, 
     return False, ""
 
 
-# ===================== BİLDİRİM KATMANI =====================
+# ===================== BİLDİRİM KATMANI (TELEGRAM) =====================
 
 class Notifier:
-    """Önce WhatsApp Web dener ve gönderimi DOĞRULAR (buton tıklandı + kutu boşaldı);
-    başarısızsa CallMeBot API'ye düşer. WhatsApp oturumu düşmüşse bunu fark eder ve
-    CallMeBot mesajına 'QR okut' notu ekler. İkisi de patlarsa ERROR log — sessiz kayıp yok."""
+    """Birincil kanal: Telegram Bot API — düz HTTPS, tarayıcı/oturum derdi yok.
+    3 deneme + üstel bekleme; hepsi patlarsa CallMeBot (WhatsApp) yedeğine düşer.
+    İkisi de patlarsa ERROR log — sessiz kayıp yok."""
 
-    def __init__(self, context: BrowserContext, settings: dict):
-        self.context = context
-        self.wa_page: Page | None = None
+    def __init__(self, rq, settings: dict):
+        self.rq = rq  # playwright APIRequestContext
+        self.token = str(settings.get("telegram_bot_token", "") or "")
+        self.chat_id = str(settings.get("telegram_chat_id", "") or "")
         self.phone = str(settings.get("phone", "")).lstrip("+")
-        self.use_wa_web = bool(settings.get("whatsapp_web", True))
         self.callmebot_key = str(settings.get("callmebot_apikey", "") or "")
-        self.wa_logged_out = False
+        self.lock = asyncio.Lock()
 
-    async def prepare_whatsapp(self) -> None:
-        if not self.use_wa_web:
-            return
-        self.wa_page = await self.context.new_page()
-        await apply_stealth(self.wa_page)
-        await self.wa_page.goto("https://web.whatsapp.com",
-                                wait_until="domcontentloaded", timeout=60000)
+    @property
+    def api(self) -> str:
+        return f"https://api.telegram.org/bot{self.token}"
+
+    async def tg(self, method: str, timeout_ms: int = 30000, **params):
+        """Telegram API çağrısı. Başarıda 'result' döner, hatada None."""
+        if not self.token:
+            return None
         try:
-            await self.wa_page.wait_for_selector(
-                "canvas, div[aria-label='Sohbet listesi'], div[data-testid='chat-list'], #pane-side",
-                timeout=45000)
-        except PWTimeout:
-            pass
-        logging.info("WhatsApp Web açıldı. QR ekranı görüyorsan telefonla okut; "
-                     "oturum .chrome-profile-bot içinde kalıcıdır.")
-
-    async def _wa_composer(self):
-        return self.wa_page.locator("footer div[contenteditable='true']").first
-
-    async def _send_wa_web(self, text: str) -> bool:
-        if not self.wa_page:
-            return False
-        try:
-            url = f"https://web.whatsapp.com/send?phone={self.phone}&text={quote_plus(text)}"
-            await self.wa_page.goto(url, wait_until="domcontentloaded", timeout=40000)
-
-            # Mesaj kutusu gelene kadar bekle; gelmiyorsa oturum düşmüş olabilir (QR ekranı)
-            try:
-                await self.wa_page.wait_for_selector(
-                    "footer div[contenteditable='true']", timeout=25000)
-                self.wa_logged_out = False
-            except PWTimeout:
-                if await self.wa_page.locator("canvas").count() > 0:
-                    self.wa_logged_out = True
-                    logging.error("WhatsApp Web oturumu DÜŞMÜŞ — QR yeniden okutulmalı!")
-                return False
-
-            await asyncio.sleep(1.5)
-            btn_sels = ["button span[data-icon='send']", "span[data-icon='send']",
-                        "button[aria-label='Gönder']", "button[aria-label='Send']"]
-            son = time.time() + 15
-            clicked = False
-            while time.time() < son and not clicked:
-                for sel in btn_sels:
-                    try:
-                        loc = self.wa_page.locator(sel).first
-                        if await loc.is_visible(timeout=800):
-                            await loc.click()
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-                if not clicked:
-                    await asyncio.sleep(1)
-            if not clicked:
-                await (await self._wa_composer()).press("Enter")
-
-            # DOĞRULAMA: gönderim gerçekleştiyse mesaj kutusu boşalmış olmalı
-            await asyncio.sleep(3)
-            kutu = await self._wa_composer()
-            if await kutu.count() > 0:
-                kalan = (await kutu.inner_text()).strip()
-                return kalan == ""
-            return clicked
+            resp = await self.rq.post(f"{self.api}/{method}", data=params,
+                                      timeout=timeout_ms)
+            js = await resp.json()
+            if not js.get("ok"):
+                logging.warning(f"Telegram {method} hatası: {js.get('description')}")
+                return None
+            return js.get("result")
         except Exception as e:
-            logging.warning(f"WhatsApp Web gönderimi başarısız: {e}")
+            logging.warning(f"Telegram {method} isteği başarısız: {e}")
+            return None
+
+    async def check_bot(self) -> bool:
+        me = await self.tg("getMe")
+        if me:
+            logging.info(f"Telegram botu hazır: @{me.get('username')}")
+            if not self.chat_id:
+                logging.warning("telegram_chat_id boş! Bota /start yaz, sonra: "
+                                "python takip_botu_pro.py chatid")
+            return True
+        logging.error("Telegram botuna ulaşılamadı — products.yaml → "
+                      "telegram_bot_token alanını kontrol et.")
+        return False
+
+    async def _send_telegram(self, text: str, chat_id: str | None = None) -> bool:
+        cid = chat_id or self.chat_id
+        if not self.token or not cid:
             return False
+        for bekle in (0, 2, 4):
+            if bekle:
+                await asyncio.sleep(bekle)
+            r = await self.tg("sendMessage", chat_id=cid, text=text,
+                              disable_web_page_preview=True)
+            if r:
+                return True
+        return False
 
     async def _send_callmebot(self, text: str) -> bool:
         if not self.callmebot_key or not self.phone:
@@ -535,7 +552,7 @@ class Notifier:
         try:
             url = (f"https://api.callmebot.com/whatsapp.php?phone=%2B{self.phone}"
                    f"&text={quote_plus(text)}&apikey={quote_plus(self.callmebot_key)}")
-            resp = await self.context.request.get(url, timeout=30000)
+            resp = await self.rq.get(url, timeout=30000)
             if not resp.ok:
                 return False
             body = (await resp.text()).lower()
@@ -545,30 +562,48 @@ class Notifier:
             return False
 
     async def send(self, text: str) -> bool:
-        async with WA_SEND_LOCK:
-            if self.use_wa_web and await self._send_wa_web(text):
-                logging.info("Bildirim WhatsApp Web ile gönderildi ✔")
+        async with self.lock:
+            if await self._send_telegram(text):
+                logging.info("Bildirim Telegram ile gönderildi ✔")
                 return True
-            yedek = text
-            if self.wa_logged_out:
-                yedek += "\n⚠️ WhatsApp Web oturumu düşmüş — bota QR okutman gerekiyor!"
-            if await self._send_callmebot(yedek):
+            if await self._send_callmebot(text):
                 logging.info("Bildirim CallMeBot (yedek kanal) ile gönderildi ✔")
                 return True
-            logging.error("BİLDİRİM GÖNDERİLEMEDİ! (WhatsApp Web + CallMeBot ikisi de başarısız)")
+            logging.error("BİLDİRİM GÖNDERİLEMEDİ! (Telegram + CallMeBot ikisi de başarısız)")
+            return False
+
+    async def send_document(self, path: Path, caption: str = "") -> bool:
+        """Dosya gönderir (/csv ve /grafik komutları için)."""
+        if not self.token or not self.chat_id:
+            return False
+        mime = {".csv": "text/csv", ".html": "text/html"}.get(
+            path.suffix.lower(), "application/octet-stream")
+        try:
+            resp = await self.rq.post(f"{self.api}/sendDocument", multipart={
+                "chat_id": self.chat_id,
+                "caption": caption,
+                "document": {"name": path.name, "mimeType": mime,
+                             "buffer": path.read_bytes()},
+            }, timeout=120000)
+            js = await resp.json()
+            if not js.get("ok"):
+                logging.warning(f"Telegram sendDocument hatası: {js.get('description')}")
+            return bool(js.get("ok"))
+        except Exception as e:
+            logging.warning(f"Telegram dosya gönderimi başarısız: {e}")
             return False
 
 
 # ===================== KONTROL + KARAR =====================
 
 async def check_once(context: BrowserContext, sites: Sites, throttle: HostThrottle,
-                     prod: dict) -> dict:
-    """Tek kontrol turu. Site kuyruğuna girer, sekme açar, okur, KAPATIR."""
-    url = prod["url"]
+                     prod: dict, url: str) -> dict:
+    """Tek kaynağın tek kontrolü. Site kuyruğuna girer, sekme açar, okur, KAPATIR."""
     host = urlparse(url).netloc
     strat = sites.strategy(host)
-    sonuc = {"price": None, "source": "yok", "in_stock": None,
-             "variant_ok": True, "variant": "AUTO", "blocked": False}
+    sonuc = {"url": url, "host": host.replace("www.", ""),
+             "price": None, "source": "yok", "seller": None,
+             "in_stock": None, "variant_ok": True, "variant": "AUTO", "blocked": False}
 
     async with throttle.slot(host):
         page = await context.new_page()
@@ -596,10 +631,43 @@ async def check_once(context: BrowserContext, sites: Sites, throttle: HostThrott
                 sonuc["in_stock"] = await check_add_to_cart(page, strat)
             if "price" in mode:
                 sonuc["price"], sonuc["source"] = await get_price(page, strat)
+                sonuc["seller"] = await get_seller(page, strat)
             throttle.reward(host)
         finally:
             await page.close()
     return sonuc
+
+
+async def check_product(context: BrowserContext, sites: Sites, throttle: HostThrottle,
+                        prod: dict) -> list[dict]:
+    """Ürünün TÜM kaynaklarını kontrol eder, okuma başına geçmişe yazar."""
+    label = prod.get("label", "Ürün")
+    sonuclar = []
+    for url in product_urls(prod):
+        s = await check_once(context, sites, throttle, prod, url)
+        sonuclar.append(s)
+        if not s["blocked"] and s["price"] is not None:
+            await append_history(label, s["host"], s["price"],
+                                 s["in_stock"], s["source"])
+    return sonuclar
+
+
+def en_iyi_kaynak(prod: dict, sonuclar: list[dict]) -> dict | None:
+    """Kaynaklar arasından bildirime esas olanı seçer: stok modunda stoklu olan,
+    fiyat modunda EN UCUZ fiyatlı olan (Akakçe birincil kurgusunun kalbi)."""
+    adaylar = [s for s in sonuclar if not s["blocked"]]
+    if not adaylar:
+        return None
+    mode = prod.get("mode", "price")
+    if "stock" in mode:
+        stoklu = [s for s in adaylar if s["variant_ok"] and s["in_stock"]]
+        havuz = stoklu or adaylar
+    else:
+        havuz = adaylar
+    fiyatli = [s for s in havuz if s["price"] is not None]
+    if fiyatli:
+        return min(fiyatli, key=lambda s: s["price"])
+    return havuz[0]
 
 
 def alarm_gerekli(prod: dict, s: dict) -> tuple[bool, str]:
@@ -644,32 +712,43 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                           notifier: Notifier, prod: dict, state: State,
                           sem: asyncio.Semaphore, settings: dict) -> None:
     label = prod.get("label", "Ürün")
-    key = prod["url"]
+    key = product_key(prod)
     cooldown = timedelta(minutes=int(prod.get("cooldown_minutes", 1440)))
     renotify_drop = float(prod.get("renotify_drop_pct",
                                    settings.get("renotify_drop_pct", 3)))
     sanity_guard = bool(settings.get("sanity_guard", True))
     error_alert_streak = int(settings.get("error_alert_streak", 5))
-    quick_recheck = False
 
     while True:
         quick_recheck = False
         async with sem:
             st = state.get(key)
             try:
-                s = await check_once(context, sites, throttle, prod)
-                fp = s["price"]
-                logging.info(f"[{label}] fiyat={tl(fp)} ({s['source']}) "
-                             f"stok={s['in_stock']} varyant={s['variant']}"
-                             f"{' [ENGEL]' if s['blocked'] else ''}")
+                sonuclar = await check_product(context, sites, throttle, prod)
+                best = en_iyi_kaynak(prod, sonuclar)
+                hepsi_engelli = all(s["blocked"] for s in sonuclar)
 
-                if not s["blocked"]:
-                    st["error_streak"] = 0
-                    if fp is not None:
-                        await append_history(label, fp, s["in_stock"], s["source"])
+                if best is not None and not hepsi_engelli:
+                    fp = best["price"]
+                    logging.info(f"[{label}] en iyi: {tl(fp)} ({best['host']}, "
+                                 f"{best['source']}) stok={best['in_stock']} "
+                                 f"varyant={best['variant']}")
 
-                    gerekli, detay = alarm_gerekli(prod, s)
-                    supheli = sanity_guard and gerekli and fiyat_suphali(prod, s, st)
+                    # Fiyat modunda hiçbir kaynak fiyat okuyamadıysa bu da bir
+                    # arıza belirtisidir → hata serisine say
+                    mode = prod.get("mode", "price")
+                    if "price" in mode and fp is None:
+                        st["error_streak"] = int(st.get("error_streak", 0)) + 1
+                        if st["error_streak"] == error_alert_streak:
+                            await notifier.send(
+                                f"⚠️ {label} üst üste {error_alert_streak} kontroldür "
+                                "fiyat okunamıyor.\nSite değişmiş olabilir — "
+                                "sites.yaml seçicisini kontrol et.")
+                    else:
+                        st["error_streak"] = 0
+
+                    gerekli, detay = alarm_gerekli(prod, best)
+                    supheli = sanity_guard and gerekli and fiyat_suphali(prod, best, st)
 
                     if supheli:
                         pend = st.get("pending_price")
@@ -683,7 +762,7 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                             st["pending_price"] = fp
                             quick_recheck = True
                             logging.warning(f"[{label}] fiyat şüpheli görünüyor "
-                                            f"({tl(fp)}, kaynak={s['source']}) — "
+                                            f"({tl(fp)}, kaynak={best['source']}) — "
                                             "1-2 dk içinde ikinci okumayla doğrulanacak.")
                     else:
                         st.pop("pending_price", None)
@@ -691,6 +770,7 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                     if fp is not None and not supheli:
                         st["last_good_price"] = fp
                         st["last_good_ts"] = time.time()
+                        st["last_good_host"] = best["host"]
 
                     if gerekli and not supheli:
                         son_ts = st.get("last_notify_ts", 0)
@@ -700,7 +780,10 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                         daha_da_dustu = (fp is not None and son_fiyat
                                          and fp <= son_fiyat * (1 - renotify_drop / 100))
                         if cooldown_gecti or daha_da_dustu:
-                            msg = f"🔥 {label}\n{detay}\n🔗 {key}"
+                            kaynak = best["host"]
+                            if best.get("seller"):
+                                kaynak += f" — satıcı: {best['seller']}"
+                            msg = f"🔥 {label}\n{detay}\n🌐 {kaynak}\n🔗 {best['url']}"
                             if await notifier.send(msg):
                                 st["last_notify_ts"] = time.time()
                                 st["last_notify_price"] = fp
@@ -718,7 +801,7 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                 if st["error_streak"] == error_alert_streak:
                     await notifier.send(
                         f"⚠️ {label} üst üste {error_alert_streak} kontroldür okunamıyor.\n"
-                        f"Site değişmiş olabilir — sites.yaml seçicisini kontrol et.\n🔗 {key}")
+                        "Site değişmiş olabilir — sites.yaml seçicisini kontrol et.")
                 await state.save()
 
         if quick_recheck:
@@ -728,10 +811,90 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                                                int(prod.get("sleep_max", 600))))
 
 
+# ===================== TELEGRAM KOMUTLARI + HEARTBEAT =====================
+
+def durum_ozeti(products: list, state: State) -> str:
+    """Ürün başına son bilinen fiyat + hedef + bayatlık işareti."""
+    satirlar = []
+    for p in products:
+        st = state.get(product_key(p))
+        fp = st.get("last_good_price")
+        ts = st.get("last_good_ts")
+        host = st.get("last_good_host", "")
+        thr = p.get("price_threshold_tl")
+        bayat = ""
+        if ts and time.time() - ts > 12 * 3600:
+            bayat = " ⚠️ eski okuma!"
+        elif not ts:
+            bayat = " ⚠️ hiç okunamadı!"
+        hedef = f" / hedef {tl(float(thr))}" if thr else ""
+        kaynak = f" ({host})" if host else ""
+        satirlar.append(f"• {p.get('label', '?')}: {tl(fp)}{hedef}{kaynak}{bayat}")
+    return "\n".join(satirlar)
+
+
+async def telegram_listener(notifier: Notifier, products: list, state: State) -> None:
+    """Uzun sorgulamayla (getUpdates) komut dinler: /durum /grafik /csv /yardim.
+    Sadece products.yaml'daki chat_id'den gelen komutlar işlenir."""
+    if not notifier.token:
+        return
+    offset = 0
+    while True:
+        try:
+            updates = await notifier.tg("getUpdates", timeout_ms=65000,
+                                        offset=offset, timeout=50)
+            if updates is None:
+                await asyncio.sleep(10)
+                continue
+            for u in updates:
+                offset = u["update_id"] + 1
+                msg = u.get("message") or {}
+                chat = str((msg.get("chat") or {}).get("id", ""))
+                text = (msg.get("text") or "").strip()
+                if not text.startswith("/"):
+                    continue
+                cmd = text.split()[0].lower().split("@")[0]
+
+                if not notifier.chat_id:
+                    # kurulum kolaylığı: chat_id ayarlı değilken /start'a id ile cevap ver
+                    if cmd == "/start":
+                        await notifier._send_telegram(
+                            f"chat_id'in: {chat}\nBunu products.yaml → "
+                            "telegram_chat_id alanına yaz ve botu yeniden başlat.",
+                            chat_id=chat)
+                    continue
+                if chat != notifier.chat_id:
+                    continue  # yabancı sohbet — yok say
+
+                if cmd in ("/start", "/yardim", "/help"):
+                    await notifier.send("Komutlar:\n/durum — son fiyatlar\n"
+                                        "/grafik — fiyat grafiği (HTML dosyası)\n"
+                                        "/csv — ham fiyat geçmişi")
+                elif cmd == "/durum":
+                    await notifier.send("📊 Durum:\n" + durum_ozeti(products, state))
+                elif cmd == "/csv":
+                    if HISTORY_CSV.exists():
+                        await notifier.send_document(HISTORY_CSV, "Ham fiyat geçmişi")
+                    else:
+                        await notifier.send("Henüz fiyat kaydı yok.")
+                elif cmd == "/grafik":
+                    try:
+                        import grafik
+                        out = grafik.generate()
+                        await notifier.send_document(
+                            out, "Fiyat grafiği — indirip tarayıcıda aç")
+                    except Exception as e:
+                        await notifier.send(f"Grafik üretilemedi: {e}")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logging.warning(f"Telegram dinleyici hatası: {e}")
+            await asyncio.sleep(10)
+
+
 async def heartbeat(notifier: Notifier, settings: dict, products: list,
                     state: State) -> None:
-    """Her gün belirli saatte 'bot yaşıyor' + fiyat özeti — sessiz ölümü fark et.
-    12 saatten eski (bayat) okumalar ⚠️ ile işaretlenir."""
+    """Her gün belirli saatte 'bot yaşıyor' + fiyat özeti — sessiz ölümü fark et."""
     saat = settings.get("heartbeat_hour")
     if saat is None:
         return
@@ -741,19 +904,8 @@ async def heartbeat(notifier: Notifier, settings: dict, products: list,
         if hedef <= simdi:
             hedef += timedelta(days=1)
         await asyncio.sleep((hedef - simdi).total_seconds())
-
-        satirlar = [f"✅ Takip botu çalışıyor — {len(products)} ürün izleniyor."]
-        for p in products:
-            st = state.get(p["url"])
-            fp = st.get("last_good_price")
-            ts = st.get("last_good_ts")
-            bayat = ""
-            if ts and time.time() - ts > 12 * 3600:
-                bayat = " ⚠️ (son okuma eski!)"
-            elif not ts:
-                bayat = " ⚠️ (hiç okunamadı!)"
-            satirlar.append(f"• {p.get('label', '?')}: {tl(fp)}{bayat}")
-        await notifier.send("\n".join(satirlar))
+        await notifier.send(f"✅ Takip botu çalışıyor — {len(products)} ürün izleniyor.\n"
+                            + durum_ozeti(products, state))
 
 
 # ===================== ANA =====================
@@ -786,60 +938,96 @@ async def main() -> None:
     throttle = HostThrottle(float(settings.get("min_gap_per_host_seconds", 25)))
 
     async with async_playwright() as p:
-        context = await launch_context(p, bool(settings.get("headless", False)))
-        notifier = Notifier(context, settings)
-        await notifier.prepare_whatsapp()
+        rq = await p.request.new_context()
+        notifier = Notifier(rq, settings)
+        await notifier.check_bot()
+        # Telegram sayesinde QR/oturum derdi yok → varsayılan headless
+        context = await launch_context(p, bool(settings.get("headless", True)))
 
         tasks = [asyncio.create_task(product_watcher(
                      context, sites, throttle, notifier, prod, state, sem, settings))
                  for prod in products]
-        hb = asyncio.create_task(heartbeat(notifier, settings, products, state))
-        logging.info(f"{len(products)} ürün izleniyor. Durdurmak için Ctrl+C.")
+        tasks.append(asyncio.create_task(heartbeat(notifier, settings, products, state)))
+        tasks.append(asyncio.create_task(telegram_listener(notifier, products, state)))
+        logging.info(f"{len(products)} ürün izleniyor. Durdurmak için Ctrl+C. "
+                     "Telegram'dan /durum yazabilirsin.")
         try:
-            await asyncio.gather(*tasks, hb)
+            await asyncio.gather(*tasks)
         except (KeyboardInterrupt, asyncio.CancelledError):
             logging.info("Durduruluyor...")
-            for t in [*tasks, hb]:
+            for t in tasks:
                 t.cancel()
-            await asyncio.gather(*tasks, hb, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=True)
         finally:
             await context.close()
+            await rq.dispose()
 
 
 async def run_once() -> None:
-    """Tüm ürünleri bir kez kontrol eder, tabloyu yazdırır, BİLDİRİM ATMAZ.
-    Yeni ürün/site eklerken seçicileri denemek için kullan."""
+    """Tüm ürünleri (tüm kaynaklarıyla) bir kez kontrol eder, tabloyu yazdırır,
+    BİLDİRİM ATMAZ. Yeni ürün/site eklerken seçicileri denemek için kullan."""
     settings, products, sites = load_config()
     throttle = HostThrottle(float(settings.get("min_gap_per_host_seconds", 25)))
     async with async_playwright() as p:
-        context = await launch_context(p, bool(settings.get("headless", False)))
-        print(f"\n{'ÜRÜN':<45} {'FİYAT':>15} {'KAYNAK':>8} {'STOK':>6} VARYANT")
-        print("-" * 90)
+        context = await launch_context(p, bool(settings.get("headless", True)))
+        print(f"\n{'ÜRÜN':<38} {'SİTE':<18} {'FİYAT':>14} {'KAYNAK':>8} {'STOK':>5} VARYANT")
+        print("-" * 100)
         for prod in products:
-            try:
-                s = await check_once(context, sites, throttle, prod)
-                stok = {True: "VAR", False: "YOK", None: "?"}[s["in_stock"]]
-                engel = "  ⛔ BOT KORUMASI!" if s["blocked"] else ""
-                print(f"{prod.get('label', '?')[:44]:<45} {tl(s['price']):>15} "
-                      f"{s['source']:>8} {stok:>6} {s['variant']}{engel}")
-            except Exception as e:
-                print(f"{prod.get('label', '?')[:44]:<45}  HATA: {type(e).__name__}: {e}")
+            for url in product_urls(prod):
+                try:
+                    s = await check_once(context, sites, throttle, prod, url)
+                    stok = {True: "VAR", False: "YOK", None: "?"}[s["in_stock"]]
+                    engel = "  ⛔ BOT KORUMASI!" if s["blocked"] else ""
+                    satici = f"  ({s['seller']})" if s.get("seller") else ""
+                    print(f"{prod.get('label', '?')[:37]:<38} {s['host'][:17]:<18} "
+                          f"{tl(s['price']):>14} {s['source']:>8} {stok:>5} "
+                          f"{s['variant']}{satici}{engel}")
+                except Exception as e:
+                    print(f"{prod.get('label', '?')[:37]:<38} "
+                          f"HATA: {type(e).__name__}: {e}")
         await context.close()
 
 
 async def run_test() -> None:
     settings, _, _ = load_config()
     async with async_playwright() as p:
-        context = await launch_context(p, headless=False)
-        n = Notifier(context, settings)
-        await n.prepare_whatsapp()
-        try:
-            input("WhatsApp'ta oturum açıksa Enter'a bas → test mesajı gönderilecek...")
-        except EOFError:
-            pass
-        ok = await n.send("✅ Takip botu PRO v2 kurulumu tamam!")
-        print("Sonuç:", "GÖNDERİLDİ ✔" if ok else "GÖNDERİLEMEDİ ✖ (log'a bak)")
-        await context.close()
+        rq = await p.request.new_context()
+        n = Notifier(rq, settings)
+        if not await n.check_bot():
+            print("Token hatalı veya boş — products.yaml → telegram_bot_token")
+            await rq.dispose()
+            return
+        ok = await n.send("✅ Takip botu PRO v3 kurulumu tamam! (Telegram birincil kanal)")
+        print("Sonuç:", "GÖNDERİLDİ ✔" if ok else
+              "GÖNDERİLEMEDİ ✖ — chat_id ayarlı mı? (python takip_botu_pro.py chatid)")
+        await rq.dispose()
+
+
+async def run_chatid() -> None:
+    """Bota Telegram'dan /start (veya herhangi bir mesaj) yaz, sonra bunu çalıştır:
+    gelen sohbetlerin chat_id'lerini listeler."""
+    settings, _, _ = load_config()
+    async with async_playwright() as p:
+        rq = await p.request.new_context()
+        n = Notifier(rq, settings)
+        if not await n.check_bot():
+            await rq.dispose()
+            return
+        print("Son mesajlar taranıyor (bota bir mesaj yazmış olmalısın)...")
+        updates = await n.tg("getUpdates", timeout_ms=35000, timeout=20) or []
+        gorulen = {}
+        for u in updates:
+            msg = u.get("message") or {}
+            chat = msg.get("chat") or {}
+            if chat.get("id"):
+                gorulen[chat["id"]] = chat.get("first_name") or chat.get("title") or "?"
+        if gorulen:
+            for cid, ad in gorulen.items():
+                print(f"  chat_id: {cid}   ({ad})")
+            print("Bu değeri products.yaml → telegram_chat_id alanına yaz.")
+        else:
+            print("Mesaj bulunamadı. Telegram'dan botuna /start yazıp tekrar dene.")
+        await rq.dispose()
 
 
 if __name__ == "__main__":
@@ -849,6 +1037,11 @@ if __name__ == "__main__":
             asyncio.run(run_test())
         elif komut == "once":
             asyncio.run(run_once())
+        elif komut == "chatid":
+            asyncio.run(run_chatid())
+        elif komut == "grafik":
+            import grafik
+            print(f"Grafik üretildi: {grafik.generate()}")
         else:
             asyncio.run(main())
     except KeyboardInterrupt:
