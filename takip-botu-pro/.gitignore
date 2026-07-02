@@ -1,0 +1,7 @@
+# Çalışma zamanı dosyaları — asla commit etme
+.chrome-profile-*/
+state.json
+state.json.tmp
+fiyat_gecmisi.csv
+*.log
+__pycache__/

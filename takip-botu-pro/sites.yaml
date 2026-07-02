@@ -1,0 +1,51 @@
+# Siteye özel stratejiler. Bir site fiyat/stok okumuyorsa DÜZELTİLECEK YER BURASI:
+# tarayıcıda sayfayı aç → sağ tık → İncele → fiyat elementinin class'ını buraya yaz.
+# Bot her zaman önce JSON-LD dener; buradaki seçiciler yedektir.
+# Seçici test etmek için: python takip_botu_pro.py once
+
+sites:
+  default:
+    add_button: "button:has-text('Sepete Ekle')"
+    wait_after_page_load: 3
+
+  amazon.com.tr:
+    # Ana fiyat bloğuna sınırlandı; sayfadaki "diğer satıcılar" / önerilen ürün
+    # fiyatlarını yakalamasın diye geniş "span.a-price" kullanılmıyor.
+    price_selector: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen"
+    add_button: "#add-to-cart-button"
+    wait_after_page_load: 2
+
+  hepsiburada.com:
+    price_selector: "[data-test-id='price-current-price']"
+    add_button: "button[data-test-id='addToCart']"
+    wait_after_page_load: 4
+
+  trendyol.com:
+    price_selector: "span.prc-dsc"
+    add_button: "button.add-to-basket"
+    wait_after_page_load: 4
+
+  n11.com:
+    price_selector: ".newPrice ins, .price-now"
+    add_button: "#addBasket, a.btnAddBasket"
+    wait_after_page_load: 3
+
+  akakce.com:
+    price_selector: "span.pt_v8"        # sayfadaki EN UCUZ satıcı fiyatı
+    wait_after_page_load: 3
+
+  tebilon.com:
+    price_selector: ".product-price"
+    wait_after_page_load: 3
+
+  incehesap.com:
+    price_selector: ".product-price"
+    wait_after_page_load: 3
+
+  sinerji.gen.tr:
+    price_selector: ".product-price"
+    wait_after_page_load: 3
+
+  itopya.com:
+    price_selector: ".product-price"
+    wait_after_page_load: 3

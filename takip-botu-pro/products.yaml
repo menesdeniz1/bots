@@ -1,0 +1,99 @@
+# ============== GENEL AYARLAR ==============
+settings:
+  phone: "90XXXXXXXXXX"          # WhatsApp numaran (başında + olmadan, ülke koduyla)
+  whatsapp_web: true             # Ana kanal: WhatsApp Web (ilk açılışta QR okut)
+  callmebot_apikey: ""           # YEDEK kanal (önerilir): callmebot.com'dan ücretsiz al
+  headless: false                # QR okutup oturum açtıktan sonra true yapabilirsin
+  max_concurrency: 3             # Aynı anda kaç ürün kontrol edilsin
+  heartbeat_hour: 9              # Her gün bu saatte "bot yaşıyor" + fiyat özeti (kapatmak: null)
+  min_gap_per_host_seconds: 25   # Aynı siteye iki istek arasındaki minimum saniye
+  sanity_guard: true             # Şüpheli (anormal düşük) fiyatı ikinci okumayla doğrula
+  renotify_drop_pct: 3           # Cooldown içinde fiyat bu % kadar daha düşerse yine bildir
+  error_alert_streak: 5          # Ürün üst üste bu kadar okunamazsa uyarı mesajı at
+
+# ============== ÜRÜNLER ==============
+# mode: price (PC parçası) | stock (beden takibi) | price+stock
+# sleep_min/max: saniye cinsinden kontrol aralığı (ürün başına)
+products:
+  - label: "Palit RTX 5070 Ti GamingPro-S 16GB"
+    url: "https://www.amazon.com.tr/dp/B0FCKZJCQK"
+    mode: price
+    price_threshold_tl: 50000
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "Kingston Beast 32GB (2x16) DDR5 6000 CL30"
+    url: "https://www.tebilon.com/kingston-beast-32gb-2x16-ddr5-6000mhz-cl30-amd-expo-sertifikali-ram-kf560c30bbe-16tr-2/"
+    mode: price
+    price_threshold_tl: 26000
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "AMD Ryzen 7 7800X3D"
+    url: "https://www.amazon.com.tr/dp/B0CJML6LQZ"
+    mode: price
+    price_threshold_tl: 13500
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "MSI MAG B850 Gaming Plus Max WiFi"
+    url: "https://www.amazon.com.tr/dp/B0GMGR31B5"
+    mode: price
+    price_threshold_tl: 9500
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "Lexar NM790 2TB Gen4 NVMe SSD"
+    url: "https://www.n11.com/urun/lexar-nm790-lnm790x002t-rnnng-2-tb-m2-ssd-52729463"
+    mode: price
+    price_threshold_tl: 12500
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "ASUS TUF Gaming 850W Gold EVO ATX 3.1"
+    url: "https://www.tebilon.com/asus-tuf-gaming-850w-gold-evo-80-plus-cybenetics-gold-pcie-51-atx-31-tam-moduler-guc-kaynagi/"
+    mode: price
+    price_threshold_tl: 5900
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "Lian Li Lancool 217 INF Siyah"
+    url: "https://www.amazon.com.tr/dp/B0G1CNMFM5"
+    mode: price
+    price_threshold_tl: 5000
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "Thermalright Phantom Spirit 120 SE"
+    url: "https://www.hepsiburada.com/thermalright-phantom-spirit-120-se-tl-c12b-v2-120mm-intel-amd-uyumlu-hava-sogutucu-tf7-termal-macun-dahildir-p-HBCV00006LVMQM"
+    mode: price
+    price_threshold_tl: 2600
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "Schneider APC 918J Akım Korumalı Priz"
+    url: "https://www.amazon.com.tr/dp/B07Z5KPCKF"
+    mode: price
+    price_threshold_tl: 1600
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  # ---- ÖRNEK: eski stock-bot'taki gibi beden/stok takibi (kapalı) ----
+  - label: "Örnek Ayakkabı 42 Numara"
+    url: "https://ornek-site.com/urun/ayakkabi"
+    mode: price+stock
+    target_variants: ["42", "42.5"]
+    price_threshold_tl: 3000
+    cooldown_minutes: 60
+    sleep_min: 60
+    sleep_max: 120
+    enabled: false
