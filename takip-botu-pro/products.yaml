@@ -75,7 +75,9 @@ products:
     sleep_max: 1800
 
   - label: "Lexar NM790 2TB Gen4 NVMe SSD"
-    url: "https://www.n11.com/urun/lexar-nm790-lnm790x002t-rnnng-2-tb-m2-ssd-52729463"
+    urls:   # çoklu kaynak: en ucuzu bildirilir
+      - "https://www.n11.com/urun/lexar-nm790-lnm790x002t-rnnng-2-tb-m2-ssd-52729463"
+      - "https://www.hepsiburada.com/lexar-nm790-2tb-gen4-7400-6500-sn-nvme-pcie-m-2-ssd-lnm790x002t-rnnng-pm-HBC0000EDSCNB"
     mode: price
     price_threshold_tl: 12500
     cooldown_minutes: 1440
@@ -110,6 +112,184 @@ products:
     url: "https://www.amazon.com.tr/dp/B07Z5KPCKF"
     mode: price
     price_threshold_tl: 1600
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  # ================================================================
+  # PDF'ten eklenenler (Masaüstü Bilgisayar Toplama).
+  # DİKKAT: Hedefler bilerek ÇOK DÜŞÜK (PDF fiyatının ~%60'ı) —
+  # bildirim atmasın diye. Gerçek hedefini Telegram'dan ayarla:
+  # /liste ile numarayı gör → /hedef <no> <fiyat>
+  # ================================================================
+
+  # ---- İşlemci / Ekran kartı alternatifleri ----
+  - label: "AMD Ryzen 7 9800X3D Tray"
+    url: "https://www.amazon.com.tr/dp/B0DQ86KCP2"    # PDF fiyatı ~22.073 TL
+    mode: price
+    price_threshold_tl: 13200
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "Gigabyte RTX 5070 Ti Eagle OC SFF 16GB"
+    url: "https://www.tebilon.com/gigabyte-geforce-rtx-5070-ti-eagle-oc-sff-16g-gddr7-rgb-16gb-256bit-dlss-4-nvidia-ekran-karti/"    # ~51.553 TL
+    mode: price
+    price_threshold_tl: 31000
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "ASUS Prime RTX 5070 Ti O16G"
+    url: "https://www.n11.com/urun/asus-prime-geforce-rtx-5070ti-prime-rtx5070ti-o16g-16-gb-gddr7-256-bit-ekran-karti-70988877"    # ~58.695 TL
+    mode: price
+    price_threshold_tl: 35200
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "Zotac RTX 5080 Solid Core OC 16GB"
+    url: "https://www.ucuzbudur.com/zotac-rtx-5080-gaming-solid-core-oc-zt-b50800j2-10p-256-bit-gddr7-16-gb-ekran-karti"    # ~67.950 TL
+    mode: price
+    price_threshold_tl: 40800
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  - label: "PNY RTX 5070 12GB ARGB OC"
+    url: "https://www.amazon.com.tr/dp/B0F42YZS37"    # ~34.500 TL
+    mode: price
+    price_threshold_tl: 20700
+    cooldown_minutes: 1440
+    sleep_min: 900
+    sleep_max: 1800
+
+  # ---- Anakart / PSU / Kasa / UPS alternatifleri ----
+  - label: "MSI Pro B650-S WiFi"
+    url: "https://www.mediamarkt.com.tr/tr/product/_msi-pro-b27b650-s-wifi-am5-ddr5-7200mhzoc-hdmi-dp-m2-usb32-25g-lan-wi-fi-6e-atx-anakart-1242785.html"    # ~7.797 TL
+    mode: price
+    price_threshold_tl: 4700
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "Corsair RM850x 850W Gold ATX 3.1"
+    url: "https://www.tebilon.com/corsair-rm850x-850w-80plus-gold-pcie-50-cp-9020270-eu-tam-modular-atx-31-guc-kaynagi/"    # ~8.435 TL
+    mode: price
+    price_threshold_tl: 5100
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "High Power Element BR 750W Bronze"
+    url: "https://www.teknobiyotik.com/high-power-element-br-750w-80-bronze-siyah-atx-guc-kaynagi-hp1-m750br-h12s.html"    # ~2.799 TL
+    mode: price
+    price_threshold_tl: 1700
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "Lian Li Lancool 217 INF Beyaz"
+    url: "https://www.amazon.com.tr/dp/B0G1CKTWDV"    # ~5.579 TL
+    mode: price
+    price_threshold_tl: 3300
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "Dark Guardian Pro ARGB Kasa"
+    url: "https://www.hepsiburada.com/dark-guardian-pro-4x12cm-argb-led-fanli-usb3-0-tempered-glass-atx-panoramik-akvaryum-oyuncu-kasasi-yeni-dkchgrpro-p-HBV00000QCN0O"    # ~3.499 TL
+    mode: price
+    price_threshold_tl: 2100
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "Makelsan Lion 2000 VA UPS"
+    url: "https://www.pttavm.com/makelsan-lion-2000-va-4-10-dk-line-interactive-k-g-k-2x12v-9ah-akulu-mu02000l11ea005-p-622801297"    # ~6.480 TL
+    mode: price
+    price_threshold_tl: 3900
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "Makelsan Lion 1200 VA UPS"
+    url: "https://www.idefix.com/makelsan-lion-1200-va-line-interactive-lcd-ekran-2-7ah-aku-p-502904"    # ~3.759 TL
+    mode: price
+    price_threshold_tl: 2300
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "APC BGM2200B-GR 2200VA UPS"
+    url: "https://www.amazon.com.tr/dp/B0CW6GFP4R"    # ~17.999 TL
+    mode: price
+    price_threshold_tl: 10800
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  # ---- Çevre birimleri ----
+  - label: "MSI MAG 271QP QD-OLED 240Hz Monitör"
+    url: "https://www.amazon.com.tr/dp/B0BSLHZKB6"    # ~25.499 TL
+    mode: price
+    price_threshold_tl: 15300
+    cooldown_minutes: 1440
+    sleep_min: 1200
+    sleep_max: 2400
+
+  - label: "Aula F87 Pro Kablosuz Mekanik Klavye"
+    url: "https://www.n11.com/urun/aula-f87-pro-mekanik-rgb-tkl-graywood-v4-switch-kablosuz-makrolu-hot-swap-turkce-q-klavye-mavi-104654796"    # ~2.570 TL
+    mode: price
+    price_threshold_tl: 1500
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "VXE Dragonfly R1 Pro Kablosuz Mouse"
+    url: "https://wraithesports.com/products/vxe-r1-kablosuz-mouse?variant=47501043728577"    # ~2.399 TL
+    mode: price
+    price_threshold_tl: 1400
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "ATK VXE Dragonfly R1 SE+ Beyaz Mouse"
+    url: "https://www.amazon.com.tr/dp/B0FN7K443F"    # ~1.799 TL
+    mode: price
+    price_threshold_tl: 1100
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "KlasseGear Pro XXL Mouse Pad"
+    url: "https://www.trendyol.com/klassegear/pro-siyah-90x40-cm-xxl-gaming-oyuncu-mouse-pad-mousepad-p-251941868"    # ~760 TL
+    mode: price
+    price_threshold_tl: 450
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "SteelSeries Arctis Nova 7 Gen 2"
+    url: "https://www.amazon.com.tr/dp/B0FS7LSTTZ"    # ~9.299 TL
+    mode: price
+    price_threshold_tl: 5600
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "HyperX Cloud III S Wireless"
+    url: "https://www.amazon.com.tr/dp/B0F6NZWPTC"    # ~5.499 TL
+    mode: price
+    price_threshold_tl: 3300
+    cooldown_minutes: 1440
+    sleep_min: 1800
+    sleep_max: 3600
+
+  - label: "Razer BlackShark V2 Pro 2023"
+    url: "https://www.amazon.com.tr/dp/B0BXLWCLZN"    # ~6.695 TL
+    mode: price
+    price_threshold_tl: 4000
     cooldown_minutes: 1440
     sleep_min: 1800
     sleep_max: 3600
