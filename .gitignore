@@ -23,5 +23,8 @@ stock_watch.log
 .idea/
 .vscode/
 
+# macOS
+.DS_Store
+
 # Other
 trendyol_sample.html

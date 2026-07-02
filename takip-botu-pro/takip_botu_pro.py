@@ -33,11 +33,14 @@ Kurulum:
   3) python takip_botu_pro.py test → test mesajı gelmeli
 
 Çalıştırma:
-  python takip_botu_pro.py           → normal çalışma (7/24 için: calistir.bat / systemd)
+  python takip_botu_pro.py           → normal çalışma
+  python3 guncelleyici.py            → 7/24 ÖNERİLEN: watchdog + git'ten otomatik
+                                       güncelleme + bozuk push geri alma (README)
   python takip_botu_pro.py once      → tüm ürünleri BİR KEZ kontrol et, bildirim atma
   python takip_botu_pro.py test      → Telegram'a test mesajı gönder
   python takip_botu_pro.py chatid    → chat_id'ni öğren
   python takip_botu_pro.py grafik    → fiyat_grafigi.html üret
+  python takip_botu_pro.py smoke     → sağlık kontrolü (gözetmen kullanır; çıkış 0=OK)
 """
 
 import asyncio
@@ -1785,6 +1788,18 @@ if __name__ == "__main__":
         elif komut == "grafik":
             import grafik
             print(f"Grafik üretildi: {grafik.generate()}")
+        elif komut == "smoke":
+            # Gözetmen (guncelleyici.py) güncelleme sonrası çağırır: kod import
+            # edilebiliyor ve konfig yükleniyor mu? Çıkış 0 = sağlıklı; değilse
+            # gözetmen push'u geri alır. Ağa/tarayıcıya dokunmaz, hızlıdır.
+            try:
+                settings, products, sites = load_config()
+                import grafik  # noqa: F401 — grafik modülü de sağlam olsun
+                print(f"SMOKE OK — {len(products)} ürün, "
+                      f"{len(sites.sites)} site kuralı")
+            except Exception as e:
+                print(f"SMOKE FAIL: {type(e).__name__}: {e}")
+                sys.exit(1)
         else:
             # İlk çalıştırma kolaylığı: Telegram hiç ayarlanmamışsa ve terminal
             # etkileşimliyse sihirbazı otomatik başlat

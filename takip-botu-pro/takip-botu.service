@@ -1,6 +1,7 @@
 # =====================================================================
-# Takip Botu systemd servisi (Linux / Raspberry Pi) — 7/24 + otomatik
-# yeniden baslatma.
+# Takip Botu systemd servisi (Linux / Raspberry Pi) — 7/24.
+# systemd GOZETMENI (guncelleyici.py) ayakta tutar; gozetmen botu ayakta
+# tutar VE git'ten otomatik gunceller (bozuk push'u geri alir).
 #
 # Kurulum:
 #   1) User ve WorkingDirectory/ExecStart yollarini kendine gore duzenle
@@ -9,17 +10,19 @@
 #   4) sudo systemctl enable --now takip-botu
 #
 # Takip:  journalctl -u takip-botu -f      Durdurma:  sudo systemctl stop takip-botu
+# Not: gozetmen bilerek sistem Python'uyla calisir (sadece stdlib) —
+# venv bozulsa bile guncelleme mekanizmasi ayakta kalir; botu venv ile baslatir.
 # =====================================================================
 [Unit]
-Description=TR e-ticaret fiyat/stok takip botu
+Description=TR e-ticaret fiyat/stok takip botu (gozetmen + otomatik guncelleme)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=pi
-WorkingDirectory=/home/pi/takip-botu-pro
-ExecStart=/usr/bin/python3 takip_botu_pro.py
+WorkingDirectory=/home/pi/bots/takip-botu-pro
+ExecStart=/usr/bin/python3 guncelleyici.py
 Restart=always
 RestartSec=15
 

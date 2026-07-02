@@ -7,5 +7,7 @@ fiyat_grafigi.html
 fiyat_grafigi.png
 telegram_urunler.yaml
 kurulum.yaml
+guncelleyici_state.json
+guncelleyici_state.json.tmp
 *.log
 __pycache__/

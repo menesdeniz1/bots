@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS 7/24 çalıştırma — launchd, GÖZETMENİ ayakta tutar; gözetmen de botu.
+  Kurulum (yollar farklıysa önce düzenle):
+    cp com.takip-botu.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.takip-botu.plist
+  Durdurmak: launchctl unload ~/Library/LaunchAgents/com.takip-botu.plist
+  Not: gözetmen bilerek sistem Python'uyla çalışır (sadece stdlib kullanır) —
+  venv bozulsa bile güncelleme mekanizması ayakta kalır; botu venv ile başlatır.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.takip-botu</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/enes/Desktop/bots/takip-botu-pro/guncelleyici.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/enes/Desktop/bots/takip-botu-pro</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/enes/Desktop/bots/takip-botu-pro/launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/enes/Desktop/bots/takip-botu-pro/launchd.log</string>
+</dict>
+</plist>

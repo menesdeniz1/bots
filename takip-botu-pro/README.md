@@ -69,19 +69,54 @@ tutulur (CSV taranmaz, hafiftir). Ayarlar: `low30_alert`, `low30_min_days`
 (ilk günlerde spam olmasın diye en az 7 günlük veri ister), `low30_cooldown_minutes`.
 Hedef alarmı zaten atılacaksa ayrıca dip mesajı atılmaz.
 
-## 7/24 çalıştırma + watchdog
+## 7/24 çalıştırma + git push ile uzaktan güncelleme
 
-**Windows:** `calistir.bat` botu izler, çökerse 15 sn sonra yeniden başlatır.
-Bilgisayar açılınca otomatik başlasın: `Win+R` → `shell:startup` → açılan
-klasöre `calistir.bat`'ın kısayolunu koy.
+Botu doğrudan değil, **gözetmeni** çalıştır:
 
-**Linux / Raspberry Pi:** `takip-botu.service` şablonunu düzenleyip
-(`User`, `WorkingDirectory`, `ExecStart` yolları) systemd'ye kur:
+```bash
+python3 guncelleyici.py
+```
+
+Gözetmen üç iş yapar (ayrıntı: `guncelleyici.py` docstring):
+
+1. **Watchdog** — botu başlatır, çökerse üstel beklemeyle yeniden başlatır.
+2. **Otomatik güncelleme** — ~90 sn'de bir git'i yoklar. Sen uzaktan push'larsın;
+   gözetmen çeker, `requirements.txt` değiştiyse pip kurar, **smoke testinden**
+   geçirir, botu nazikçe yeniden başlatır ve Telegram'a "⬆️ güncellendi" yazar.
+3. **Bozuk push koruması** — üç ayrı ağ:
+   - Açılmayan/derlenmeyen kod → smoke geçmez, push **geri alınır**, eski sürüm
+     hiç kesintiye uğramadan devam eder, telefona "⛔ push bozuk" düşer.
+   - Açılıp hemen çöken kod → 3 hızlı çökmeden sonra **bilinen son iyi sürüme**
+     otomatik dönülür (5 dk yaşayan sürüm "iyi" işaretlenir).
+   - Bot bozuk/kapalı haldeyken düzeltme push'larsan → her yeniden başlatma
+     öncesi git kontrol edilir, düzeltme **bir sonraki denemede** alınır.
+   Aynı bozuk commit tekrar tekrar denenmez; yeni commit gelince tekrar bakılır.
+
+Katmanlar: işletim sistemi gözetmeni ayakta tutar, gözetmen botu. Gözetmen
+bilerek **sadece stdlib** kullanır ve sistem Python'uyla çalışır — venv bozulsa
+bile güncelleme mekanizması ölmez. Gözetmenin kendisi de repodan güncellenir
+(önce derleme kontrolünden geçer).
+
+**macOS:** `com.takip-botu.plist` içindeki yolları kontrol et, sonra:
+```bash
+cp com.takip-botu.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.takip-botu.plist
+```
+
+**Linux / Raspberry Pi:** `takip-botu.service` şablonunu düzenleyip systemd'ye kur:
 ```bash
 sudo cp takip-botu.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now takip-botu
 journalctl -u takip-botu -f     # canlı log
 ```
+
+**Windows:** `calistir.bat` gözetmeni çalıştırır. Otomatik başlasın:
+`Win+R` → `shell:startup` → açılan klasöre `calistir.bat`'ın kısayolunu koy.
+
+ÖNEMLİ: Bu kurguda kaynak gerçeği git'tir — bot makinesinde `products.yaml`
+gibi takip edilen dosyaları **elle değiştirme**, değişikliği push'la gönder.
+(Telegram komutları serbest: onlar git dışı overlay dosyalarına yazar.)
+Elle değişiklik algılanırsa gözetmen güncellemeyi bekletir ve Telegram'a uyarır.
 
 Bot her (yeniden) başlayışta Telegram'a 🔄 mesajı atar; 30 dk içinde arka arkaya
 başlıyorsa (çökme döngüsü) mesaj spam'i yapmaz, `takip.log`'a bakman gerektiğini
@@ -118,8 +153,11 @@ Akakçe'de en ucuz satıcının adı da bildirime eklenir.
 | `telegram_urunler.yaml` | /ekle /sil /hedef değişiklikleri (bot yazar, otomatik oluşur) |
 | `sites.yaml` | Siteye özel CSS seçicileri — site okumuyorsa burayı düzelt |
 | `grafik.py` | `fiyat_gecmisi.csv` → `fiyat_grafigi.html` (koyu/açık tema, ürün başına grafik) |
-| `calistir.bat` | Windows watchdog — çökerse yeniden başlatır |
-| `takip-botu.service` | Linux/RaspberryPi systemd servisi şablonu |
+| `guncelleyici.py` | Gözetmen: watchdog + git'ten otomatik güncelleme + bozuk push geri alma |
+| `com.takip-botu.plist` | macOS launchd şablonu (gözetmeni ayakta tutar) |
+| `calistir.bat` | Windows başlatıcı (gözetmeni ayakta tutar) |
+| `takip-botu.service` | Linux/RaspberryPi systemd şablonu (gözetmeni ayakta tutar) |
+| `guncelleyici_state.json` | Gözetmen durumu: son iyi sürüm + bozuk commit (otomatik) |
 | `state.json` | Bildirim durumu + günlük minimumlar (otomatik oluşur) |
 | `fiyat_gecmisi.csv` | Her okuma: `zaman;urun;site;fiyat;stok;kaynak` |
 | `takip.log` | Çalışma logu |
