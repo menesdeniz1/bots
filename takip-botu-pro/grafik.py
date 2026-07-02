@@ -20,6 +20,7 @@ import yaml
 BASE_DIR = Path(__file__).resolve().parent
 HISTORY_CSV = BASE_DIR / "fiyat_gecmisi.csv"
 PRODUCTS_YAML = BASE_DIR / "products.yaml"
+TELEGRAM_URUNLER = BASE_DIR / "telegram_urunler.yaml"
 OUT_HTML = BASE_DIR / "fiyat_grafigi.html"
 CHARTJS_LOCAL = BASE_DIR / "chartjs.umd.min.js"   # gömülürse HTML internetsiz açılır
 CHARTJS_CDN = "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
@@ -67,12 +68,27 @@ def _read_history(csv_path: Path) -> list[dict]:
 
 
 def _thresholds(products_yaml: Path) -> dict[str, float]:
+    """Hedef fiyatlar: products.yaml + telegram_urunler.yaml birleşimi.
+    Telegram'dan /ekle ile gelen ürünler ve /hedef değişiklikleri de
+    grafikte hedef çizgisi olarak görünsün."""
+    out: dict[str, float] = {}
     try:
         cfg = yaml.safe_load(products_yaml.read_text(encoding="utf-8")) or {}
-        return {p.get("label", ""): float(p["price_threshold_tl"])
-                for p in cfg.get("products", []) if p.get("price_threshold_tl")}
+        out = {p.get("label", ""): float(p["price_threshold_tl"])
+               for p in cfg.get("products", []) if p.get("price_threshold_tl")}
     except Exception:
-        return {}
+        pass
+    try:
+        tg_path = products_yaml.parent / TELEGRAM_URUNLER.name
+        tg = yaml.safe_load(tg_path.read_text(encoding="utf-8")) or {}
+        for p in tg.get("eklenen") or []:
+            if p.get("price_threshold_tl"):
+                out[p.get("label", "")] = float(p["price_threshold_tl"])
+        for label, hedef in (tg.get("hedefler") or {}).items():
+            out[label] = float(hedef)
+    except Exception:
+        pass
+    return out
 
 
 def generate(csv_path: Path = HISTORY_CSV, out_path: Path = OUT_HTML,

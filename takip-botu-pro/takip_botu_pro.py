@@ -84,6 +84,8 @@ BLOCK_MARKERS = [
     "robot check", "captcha", "erişim engellendi", "access denied",
     "olağandışı trafik", "unusual traffic", "attention required",
     "checking your browser", "doğrulama gerekiyor",
+    "just a moment",             # Cloudflare ara sayfası (tebilon vb.)
+    "hepsiburada | güvenlik",    # Hepsiburada bot duvarı (başlık)
 ]
 
 
@@ -308,6 +310,56 @@ async def append_history(label: str, site: str, price: float | None,
             ])
 
 
+def csv_etiket_degistir(eski: str, yeni: str) -> None:
+    """fiyat_gecmisi.csv'deki ürün adını günceller (atomik: tmp + replace)."""
+    if not HISTORY_CSV.exists():
+        return
+    with open(HISTORY_CSV, encoding="utf-8", newline="") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    for r in rows:
+        if len(r) >= 2 and r[1] == eski:
+            r[1] = yeni
+    tmp = HISTORY_CSV.with_suffix(".csv.tmp")
+    with open(tmp, "w", encoding="utf-8", newline="") as f:
+        csv.writer(f, delimiter=";").writerows(rows)
+    os.replace(tmp, HISTORY_CSV)
+
+
+def etiket_gocu(state: "State", products: list[dict]) -> bool:
+    """Etiket değişse de geçmiş kaybolmasın. state/CSV/hedefler etikete göre
+    anahtarlıdır (çoklu kaynakta URL ürünü temsil etmez); ürünü yeniden
+    adlandırmak cooldown'u, günlük minimumları ve grafik geçmişini sıfırlıyordu.
+    Eşleştirme URL parmak iziyle: izleyici her turda ürünün URL'lerini state'e
+    yazar; sahipsiz kalan eski kayıt, URL'leri kesişen ve kendi kaydı olmayan
+    yeni ürüne aktarılır. True dönerse ürün listesi yeniden yüklenmelidir
+    (taşınan hedef/ek-kaynak overlay'i uygulansın diye)."""
+    mevcut = {product_key(p) for p in products}
+    tasindi = False
+    for eski in [k for k in state.data if not k.startswith("_") and k not in mevcut]:
+        eski_urls = set(state.data[eski].get("urls") or [])
+        if not eski_urls:
+            continue
+        for p in products:
+            yeni = product_key(p)
+            if yeni in state.data or not eski_urls & set(product_urls(p)):
+                continue
+            state.data[yeni] = state.data.pop(eski)
+            csv_etiket_degistir(eski, yeni)
+            d = _tg_dosya()
+            degisti = False
+            for alan in ("hedefler", "ek_kaynaklar"):
+                if eski in d[alan]:
+                    d[alan][yeni] = d[alan].pop(eski)
+                    degisti = True
+            if degisti:
+                save_yaml_atomic(TELEGRAM_URUNLER, d)
+            logging.info(f"Etiket değişikliği algılandı: '{eski}' → '{yeni}' — "
+                         "geçmiş taşındı (state + CSV + hedef/ek-kaynak).")
+            tasindi = True
+            break
+    return tasindi
+
+
 # --- Günlük minimum takibi: 30-gün-dibi sinyali + 7 günlük trend buradan beslenir ---
 
 def gunluk_min_guncelle(st: dict, fp: float) -> None:
@@ -433,13 +485,15 @@ class _ThrottleSlot:
 # ===================== SAYFA OKUMA =====================
 
 def _jsonld_iter(node):
-    """JSON-LD içinde gezinir: listeler, @graph, iç içe yapılar."""
+    """JSON-LD içinde gezinir: listeler, @graph, iç içe yapılar.
+    'object': mediamarkt gibi siteler Product'ı BuyAction.object içine gömer."""
     if isinstance(node, list):
         for x in node:
             yield from _jsonld_iter(x)
     elif isinstance(node, dict):
         yield node
-        for key in ("@graph", "mainEntity", "itemListElement", "item", "offers"):
+        for key in ("@graph", "mainEntity", "itemListElement", "item", "offers",
+                    "object"):
             if key in node:
                 yield from _jsonld_iter(node[key])
 
@@ -517,8 +571,13 @@ async def get_price(page: Page, strat: dict) -> tuple[float | None, str]:
 
     # 4) Son çare: gövdedeki ilk '12.345,67 TL' kalıbı — DÜŞÜK GÜVEN
     # (önerilen ürün fiyatını yakalayabilir; bu yüzden bildirim öncesi doğrulanır)
+    # sites.yaml → text_scope: regex'in bakacağı alanı daraltır (örn. Amazon'da
+    # "#centerCol" — sponsorlu ürün karuselinin fiyatını ana fiyat sanmasın).
+    # Kapsam elementi sayfada yoksa regex adımı ATLANIR: fiyatsız sayfada
+    # (stok yok vb.) yanlış fiyat okumaktansa "yok" demek daha doğru.
     try:
-        body = await page.locator("body").inner_text(timeout=3000)
+        scope = strat.get("text_scope")
+        body = await page.locator(scope or "body").first.inner_text(timeout=3000)
         m = re.search(r"(\d{1,3}(?:\.\d{3})+(?:,\d{2})?|\d+,\d{2})\s*(?:TL|₺)", body)
         if m:
             logging.debug("Fiyat gövde regex ile bulundu (düşük güven).")
@@ -875,15 +934,29 @@ async def check_once(context: BrowserContext, sites: Sites, throttle: HostThrott
 
 async def check_product(context: BrowserContext, sites: Sites, throttle: HostThrottle,
                         prod: dict) -> list[dict]:
-    """Ürünün TÜM kaynaklarını kontrol eder, okuma başına geçmişe yazar."""
+    """Ürünün TÜM kaynaklarını kontrol eder, okuma başına geçmişe yazar.
+    Bir kaynağın hatası diğerlerini iptal etmez (Akakçe birincil kurgusunda
+    tek kaynağın arızası ürünü kör etmesin); AMA tüm kaynaklar hata verirse
+    hata yukarı fırlatılır ki izleyicinin error_streak sayacı çalışsın."""
     label = prod.get("label", "Ürün")
     sonuclar = []
+    son_hata: Exception | None = None
     for url in product_urls(prod):
-        s = await check_once(context, sites, throttle, prod, url)
+        try:
+            s = await check_once(context, sites, throttle, prod, url)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            son_hata = e
+            logging.warning(f"[{label}] kaynak okunamadı "
+                            f"({urlparse(url).netloc}): {type(e).__name__}: {e}")
+            continue
         sonuclar.append(s)
         if not s["blocked"] and s["price"] is not None:
             await append_history(label, s["host"], s["price"],
                                  s["in_stock"], s["source"])
+    if not sonuclar and son_hata is not None:
+        raise son_hata
     return sonuclar
 
 
@@ -925,17 +998,23 @@ def alarm_gerekli(prod: dict, s: dict) -> tuple[bool, str]:
 
 
 def fiyat_suphali(prod: dict, s: dict, st: dict) -> bool:
-    """Parse hatası ihtimali: regex kaynaklı okuma, hedefin yarısından da ucuz,
-    veya son iyi fiyata göre %40'tan fazla ani düşüş → önce doğrula, sonra bildir."""
+    """Parse hatası ihtimali: doğrulanmamış regex okuması, hedefin yarısından da
+    ucuz, veya son iyi fiyata göre %40'tan fazla ani düşüş → önce doğrula, sonra
+    bildir. Sadece hedef alarmını değil, 30-gün-dibi sinyalini ve state'e yazılan
+    fiyatı da korur (bozuk fiyat daily_min'e girerse 35 gün gerçek dibi maskeler)."""
     fp = s["price"]
     if fp is None:
         return False
+    son_iyi = st.get("last_good_price")
     if s["source"] == "regex":
-        return True
+        # Son iyi fiyata ±%5 yakınsa geçmiş bu okumayı doğruluyor demektir;
+        # sapıyorsa (veya ilk okumaysa) ikinci okuma şart. Böylece sürekli
+        # regex'te kalan ürünler her turda yeniden doğrulanmaz.
+        if not son_iyi or abs(fp - son_iyi) > son_iyi * 0.05:
+            return True
     thr = float(prod.get("price_threshold_tl", 0))
     if thr and fp < thr * 0.5:
         return True
-    son_iyi = st.get("last_good_price")
     if son_iyi and fp < son_iyi * 0.6:
         return True
     return False
@@ -961,6 +1040,7 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
         quick_recheck = False
         async with sem:
             st = state.get(key)
+            st["urls"] = product_urls(prod)   # etiket göçü için URL parmak izi
             try:
                 sonuclar = await check_product(context, sites, throttle, prod)
                 best = en_iyi_kaynak(prod, sonuclar)
@@ -986,7 +1066,9 @@ async def product_watcher(context: BrowserContext, sites: Sites, throttle: HostT
                         st["error_streak"] = 0
 
                     gerekli, detay = alarm_gerekli(prod, best)
-                    supheli = sanity_guard and gerekli and fiyat_suphali(prod, best, st)
+                    # supheli bilerek 'gerekli'den bağımsız: şüpheli fiyat hedef
+                    # alarmı tetiklemese de low30 sinyalini ve state'i kirletmesin
+                    supheli = sanity_guard and fiyat_suphali(prod, best, st)
 
                     if supheli:
                         pend = st.get("pending_price")
@@ -1493,6 +1575,10 @@ async def main() -> None:
         logging.error("products.yaml içinde aktif ürün yok.")
         return
     state = State(STATE_FILE)
+    # Etiket değiştirilmişse geçmişi yeni ada taşı (URL parmak iziyle eşleşir)
+    if etiket_gocu(state, products):
+        products = load_products()
+        await state.save()
     throttle = HostThrottle(float(settings.get("min_gap_per_host_seconds", 25)))
 
     async with async_playwright() as p:

@@ -164,6 +164,12 @@ Akakçe'de en ucuz satıcının adı da bildirime eklenir.
 
 9. **RAM disiplini** — her kontrol kendi sekmesini açar ve `finally` ile kapatır.
 
+10. **Etiket değişikliğinde geçmiş göçü** — state/CSV/hedefler etikete göre
+    anahtarlıdır. Ürünü `products.yaml`'da yeniden adlandırırsan bot açılışta
+    URL parmak iziyle eski kaydı bulur ve geçmişi (cooldown, günlük minimumlar,
+    grafik verisi, hedef/ek-kaynak) yeni ada taşır — hiçbir şey sıfırlanmaz.
+    Not: etiketi VE tüm linkleri aynı anda değiştirirsen eşleşme yapılamaz.
+
 ## Sorun giderme
 
 | Belirti | Çözüm |

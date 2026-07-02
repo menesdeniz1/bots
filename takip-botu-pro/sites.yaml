@@ -11,7 +11,13 @@ sites:
   amazon.com.tr:
     # Ana fiyat bloğuna sınırlandı; sayfadaki "diğer satıcılar" / önerilen ürün
     # fiyatlarını yakalamasın diye geniş "span.a-price" kullanılmıyor.
-    price_selector: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen"
+    # #apex_price: renk/varyant seçicili (twister) sayfa şablonu — SteelSeries
+    # Nova 7 gibi sayfalarda ana fiyat bu blokta, regex'e düşmesin.
+    price_selector: "#corePriceDisplay_desktop_feature_div span.a-price .a-offscreen, #apex_desktop span.a-price .a-offscreen, #corePrice_feature_div span.a-price .a-offscreen, #apex_price span.a-price, #apex_price .aok-offscreen"
+    # Regex son çaresi SADECE ana ürün kolonuna baksın: buybox fiyatı olmayan
+    # sayfalarda (stok yok vb.) sponsorlu ürün karuselindeki fiyat ana fiyat
+    # sanılıyordu (Lancool 217 vakası). #centerCol yoksa regex atlanır → "yok".
+    text_scope: "#centerCol"
     add_button: "#add-to-cart-button"
     wait_after_page_load: 2
 
@@ -39,7 +45,15 @@ sites:
     wait_after_page_load: 3
 
   tebilon.com:
+    # DİKKAT: tebilon Cloudflare arkasında ("Just a moment..." sayfası) —
+    # headless bot çoğu zaman duvara takılır ve geri çekilir. Bu üründen
+    # sürekli "engel" görüyorsan ürünü /akakce ile Akakçe'ye bağlamak
+    # (veya başka mağaza linki eklemek) daha sağlıklı.
     price_selector: ".product-price"
+    wait_after_page_load: 3
+
+  mediamarkt.com.tr:
+    # Fiyat JSON-LD'den okunur (BuyAction.object.offers) — seçici gerekmez.
     wait_after_page_load: 3
 
   incehesap.com:
