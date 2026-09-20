@@ -11,13 +11,19 @@ from playwright.async_api import async_playwright, TimeoutError as PWTimeout, Pa
 # ===================== PROJE AYARLARI =====================
 BASE_DIR = Path(__file__).resolve().parent
 HEADLESS = os.getenv("STOCKBOT_HEADLESS", "false").lower() == "true"  # İlk girişte QR için False kalsın
-OWN_PHONE_E164 = os.getenv("STOCKBOT_PHONE_E164", "REMOVED_CONFIGURE_EXTERNALLY")
+OWN_PHONE_E164 = os.getenv("STOCKBOT_PHONE_E164", "")
+if not re.fullmatch(r"[1-9][0-9]{7,14}", OWN_PHONE_E164):
+    raise RuntimeError("Set STOCKBOT_PHONE_E164 to your own destination number before running.")
 
 # Dosya Yolları
 PRODUCTS_YAML = str(BASE_DIR / "products.yaml")
 SITES_YAML = str(BASE_DIR / "sites.yaml")
-USER_DATA_DIR = str(BASE_DIR / ".chrome-profile-bot")
-LOG_FILE = str(BASE_DIR / "stock_watch.log")
+PRIVATE_DATA_DIR = Path(os.getenv("STOCKBOT_DATA_DIR", str(Path.home() / ".local" / "share" / "stock-bot"))).expanduser().resolve()
+if PRIVATE_DATA_DIR.is_relative_to(BASE_DIR.parent):
+    raise RuntimeError("STOCKBOT_DATA_DIR must be outside this repository")
+PRIVATE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+USER_DATA_DIR = str(PRIVATE_DATA_DIR / "browser-profile")
+LOG_FILE = str(PRIVATE_DATA_DIR / "stock_watch.log")
 
 # Global Limitler
 PAGE_TIMEOUT_MS = 45000
