@@ -1,5 +1,7 @@
 # Personal automation experiments
 
+**Archived:** an older collection of two experiments: `stock-bot` and `anti-idle-bot`. For separate portfolio projects, see [Tracker](https://github.com/menesdeniz1/tracker), [KeepMoney](https://github.com/menesdeniz1/keepmoney) and [KeepAwake](https://github.com/menesdeniz1/keepawake). These are related applications, not a claim that this repository is an identical copy of them.
+
 Python experiments for product monitoring and Windows desktop idle management. This is a collection of prototypes, not a hosted service or a guaranteed retailer integration.
 
 ## Stock monitor
